@@ -1,0 +1,25 @@
+{
+  "name": "3dot-desktop",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/main.js",
+  "scripts": {
+    "dev:electron": "nodemon --watch src/main --exec electron .",
+    "dev:renderer": "vite --config vite.config.js",
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "electron": "^44.0.0",
+    "nodemon": "^3.1.14"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}
