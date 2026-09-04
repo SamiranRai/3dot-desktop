@@ -1,23 +1,29 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("browser", {
+const browserAPI = {
   navigate: (url) => {
     console.log("PRELOAD: navigate called:", url);
-    ipcRenderer.send("browser:navigate", url);
+    ipcRenderer.invoke("browser:navigate", url);
   },
 
-  back: () => {
-    console.log("PRELOAD: back called");
-    ipcRenderer.send("browser:back");
+  goBack: () => {
+    console.log("PRELOAD: goBack called");
+    ipcRenderer.invoke("browser:navigation:back");
   },
 
-  forward: () => {
-    console.log("PRELOAD: forward called");
-    ipcRenderer.send("browser:forward");
+  goForward: () => {
+    console.log("PRELOAD: goForward called");
+    ipcRenderer.invoke("browser:navigation:forward");
   },
 
   reload: () => {
     console.log("PRELOAD: reload called");
-    ipcRenderer.send("browser:reload");
+    ipcRenderer.invoke("browser:navigation:reload");
   },
-});
+};
+
+try {
+  contextBridge.exposeInMainWorld("browser", browserAPI);
+} catch (error) {
+  console.error("PRELOAD: Failed to expose browser API", error);
+}

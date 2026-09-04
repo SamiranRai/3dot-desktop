@@ -3,24 +3,24 @@ import { useState } from "react";
 function App() {
   const [url, setUrl] = useState("");
 
-  function navigateGo() {
-    // Little Bug for intial text
-    if (window.browser && url) {
+  function navigate() {
+    if (window.browser) {
+      console.log("Navigating to:", url);
       window.browser.navigate(url);
     }
   }
 
-  function navigateBack() {
+  function goBack() {
     console.log("Navigating back");
-    window.browser.back();
+    window.browser.goBack();
   }
 
-  function navigateForward() {
+  function goForward() {
     console.log("Navigating forward");
-    window.browser.forward();
+    window.browser.goForward();
   }
 
-  function reloadPage() {
+  function reload() {
     console.log("Reloading page");
     window.browser.reload();
   }
@@ -28,11 +28,11 @@ function App() {
   return (
     <div>
       <div>
-        <button onClick={navigateBack}>←</button>
+        <button onClick={goBack}>←</button>
 
-        <button onClick={navigateForward}>→</button>
+        <button onClick={goForward}>→</button>
 
-        <button onClick={reloadPage}>↻</button>
+        <button onClick={reload}>↻</button>
 
         <input
           value={url}
@@ -40,12 +40,12 @@ function App() {
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               console.log("Enter key pressed");
-              navigateGo();
+              navigate();
             }
           }}
         />
 
-        <button onClick={navigateGo}>Go</button>
+        <button onClick={navigate}>Go</button>
       </div>
     </div>
   );
