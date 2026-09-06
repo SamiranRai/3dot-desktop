@@ -6,9 +6,13 @@ const ErrorCodes = require("./../errors/ErrorCodes");
 const ErrorHandler = require("./../errors/ErrorHandler");
 
 class BrowserIPCController {
-  constructor(browserManager) {
+  constructor(browserManager, window) {
+    this.window = window;
     this.browserManager = browserManager;
     this.registered = false;
+
+    // Browser State Change Handler Binding
+    this.handleBrowserStateChanged = this.handleBrowserStateChanged.bind(this);
   }
 
   // IPC Handlers Registration
@@ -22,6 +26,12 @@ class BrowserIPCController {
     ipcMain.handle("browser:navigation:back", this.goBack);
     ipcMain.handle("browser:navigation:forward", this.goForward);
     ipcMain.handle("browser:navigation:reload", this.reload);
+
+    // Register the listener for browser:state-changed events
+    this.browserManager.on(
+      "browser:state-changed",
+      this.handleBrowserStateChanged,
+    );
 
     this.registered = true;
     console.log("BrowserIPCController: IPC handlers registered");
@@ -39,9 +49,30 @@ class BrowserIPCController {
     ipcMain.removeHandler("browser:navigation:forward");
     ipcMain.removeHandler("browser:navigation:reload");
 
+    // Remove the listener for browser:state-changed events
+    this.browserManager.off(
+      "browser:state-changed",
+      this.handleBrowserStateChanged,
+    );
+
     this.registered = false;
     console.log("BrowserIPCController: IPC handlers unregistered");
   }
+
+  // browser:state-changed Event Listener
+  handleBrowserStateChanged = (state) => {
+    if (this.window && !this.window.isDestroyed()) {
+      console.log(
+        "BrowserIPCController: Sending browser:state-changed event to renderer",
+        state,
+      );
+      this.window.webContents.send("browser:state-changed", state);
+    } else {
+      console.warn(
+        "BrowserIPCController: Cannot send browser:state-changed event, window is not available or destroyed",
+      );
+    }
+  };
 
   navigate = (event, url) => {
     console.log("BrowserIPCController: browser:navigate called", url);
@@ -52,7 +83,7 @@ class BrowserIPCController {
       const validatedUrl = this.validateNavigationUrl(url);
       return this.browserManager.navigate(validatedUrl);
     });
-  }
+  };
 
   goBack = (event) => {
     console.log("BrowserIPCController: browser:navigation:back called");
@@ -61,7 +92,7 @@ class BrowserIPCController {
       this.validateSender(event);
       return this.browserManager.goBack();
     });
-  }
+  };
 
   goForward = (event) => {
     console.log("BrowserIPCController: browser:navigation:forward called");
@@ -70,7 +101,7 @@ class BrowserIPCController {
       this.validateSender(event);
       return this.browserManager.goForward();
     });
-  }
+  };
 
   reload = (event) => {
     console.log("BrowserIPCController: browser:navigation:reload called");
@@ -79,7 +110,7 @@ class BrowserIPCController {
       this.validateSender(event);
       return this.browserManager.reload();
     });
-  }
+  };
 
   // Validation Methods
   validateSender(event) {

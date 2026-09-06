@@ -1,26 +1,34 @@
 const { WebContentsView } = require("electron");
-
+const { EventEmitter } = require("events");
+const BrowserState = require("./BrowserState");
 /*
-state: "created" | "initializing" | "ready" | "error"
+lifecycleState: "created" | "initializing" | "ready" | "error" | "destroyed"
 */
 
-class BrowserManager {
+class BrowserManager extends EventEmitter {
   constructor(window) {
+    super();
+
     this.window = window;
     this.view = null;
-    // Browser State: "Created"
-    this.state = "created";
+
+    // Browser State
+    this.browserState = new BrowserState();
+
+    // Browser Lifecycle State: "Created"
+    this.lifecycleState = "created";
   }
 
+  // Initialize Method
   initialize() {
-    if (this.state !== "created") {
+    if (this.lifecycleState !== "created") {
       throw new Error(
-        `Cannot initialize BrowserManager from state: ${this.state}`,
+        `Cannot initialize BrowserManager from lifecycle state: ${this.lifecycleState}`,
       );
     }
 
-    // Browser State: "Initializing"
-    this.state = "initializing";
+    // Browser Lifecycle State: "Initializing"
+    this.lifecycleState = "initializing";
 
     try {
       // Create a new WebContentsView
@@ -41,16 +49,60 @@ class BrowserManager {
       // Load the initial URL (Google in this case)
       this.view.webContents.loadURL("https://www.google.com");
 
-      // Browser State: "ready"
-      this.state = "ready";
+      // Setup WebContents Events
+      this.setupWebContentsEvents();
+
+      // Browser Lifecycle State: "ready"
+      this.lifecycleState = "ready";
 
       // Log the successful initialization
       console.log("BROWSER MANAGER: Initialized successfully");
     } catch (error) {
-      this.state = "error";
+      this.lifecycleState = "error";
       console.error("BROWSER MANAGER: Initialization failed:", error);
       throw error;
     }
+  }
+
+  // Setup Chromium Events Method
+  setupWebContentsEvents() {
+    const webContents = this.view.webContents;
+
+    webContents.on("did-start-loading", () => {
+      this.updateBrowserState({ isLoading: true });
+
+      console.log("BROWSER MANAGER: loading started");
+    });
+
+    webContents.on("did-stop-loading", () => {
+      this.updateBrowserState({ isLoading: false });
+
+      console.log("BROWSER MANAGER: loading stopped");
+    });
+
+    webContents.on("did-navigate", (_, url) => {
+      this.updateBrowserState({
+        url,
+        canGoBack: webContents.navigationHistory.canGoBack(),
+        canGoForward: webContents.navigationHistory.canGoForward(),
+      });
+
+      console.log("BROWSER MANAGER: URL changed:", url);
+    });
+
+    webContents.on("page-title-updated", (_, title) => {
+      this.updateBrowserState({ title });
+
+      console.log("BROWSER MANAGER: title changed:", title);
+    });
+  }
+
+  // Update Browser State Method
+  updateBrowserState(patch) {
+    Object.assign(this.browserState, patch);
+
+    // Emit
+    this.emit("browser:state-changed", this.browserState.getSnapshot());
   }
 
   // Resize Method
@@ -71,6 +123,11 @@ class BrowserManager {
       width,
       height: height - toolbarHeight,
     });
+  }
+
+  // Get Snapshot Method
+  getSnapshot() {
+    return this.browserState.getSnapshot();
   }
 
   // ---Navigation Methods---
@@ -105,12 +162,12 @@ class BrowserManager {
 
   // Assert Ready Method
   assertReady() {
-    if (this.state !== "ready") {
+    if (this.lifecycleState !== "ready") {
       throw new Error(
-        `BrowserManager is not ready. Current state: ${this.state}`,
+        `BrowserManager is not ready. Current lifecycle state: ${this.lifecycleState}`,
       );
     }
-  } 
+  }
 }
 
 module.exports = BrowserManager;

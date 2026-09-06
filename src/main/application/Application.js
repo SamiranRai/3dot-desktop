@@ -11,17 +11,19 @@ class Application {
     this.browserManager = null;
     this.browserIPCController = null;
 
-    // Application State: "created"
-    this.state = "created";
+    // Application lifecycle state: "created"
+    this.lifecycleState = "created";
   }
 
   start() {
-    if (this.state !== "created") {
-      throw new Error(`Cannot start application from state: ${this.state}`);
+    if (this.lifecycleState !== "created") {
+      throw new Error(
+        `Cannot start application from lifecycle state: ${this.lifecycleState}`,
+      );
     }
 
-    // Application State: "starting"
-    this.state = "starting";
+    // Application lifecycle state: "starting"
+    this.lifecycleState = "starting";
 
     try {
       // 1) Create Application Window
@@ -34,18 +36,20 @@ class Application {
       this.browserManager.initialize();
 
       // 4) Create Browser IPC Controller
-      this.browserIPCController = new BrowserIPCController(this.browserManager);
+      this.browserIPCController = new BrowserIPCController(
+        this.browserManager,
+        this.window,
+      );
 
       // 5) Register Browser IPC Handlers
       this.browserIPCController.register();
-
-      // Application State: "ready"
-      this.state = "ready";
+      // Application lifecycle state: "ready"
+      this.lifecycleState = "ready";
 
       console.log("APPLICATION: ready");
     } catch (error) {
       console.error("APPLICATION: failed to start");
-      this.state = "error";
+      this.lifecycleState = "error";
 
       // this.shutdown();
 
@@ -54,7 +58,7 @@ class Application {
   }
 
   // shutdown() {
-  //   if (this.state === "destroyed") {
+  //   if (this.lifecycleState === "destroyed") {
   //     console.warn("APPLICATION: already destroyed");
   //     return;
   //   }
@@ -77,8 +81,8 @@ class Application {
   //   this.browserManager = null;
   //   this.browserIPCController = null;
 
-  //   // Application State: "destroyed"
-  //   this.state = "destroyed";
+  //   // Application lifecycle state: "destroyed"
+  //   this.lifecycleState = "destroyed";
 
   //   console.log("APPLICATION: destroyed");
   // }

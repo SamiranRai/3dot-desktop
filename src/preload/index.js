@@ -20,6 +20,22 @@ const browserAPI = {
     console.log("PRELOAD: reload called");
     ipcRenderer.invoke("browser:navigation:reload");
   },
+
+  onBrowserStateChanged: (callback) => {
+    console.log("PRELOAD: onBrowserStateChanged called");
+
+    const listener = (_event, state) => {
+      console.log("PRELOAD: browser:state-changed event received:", state);
+      callback(state);
+    };
+
+    ipcRenderer.on("browser:state-changed", listener);
+
+    // Return a function to unsubscribe
+    return () => {
+      ipcRenderer.removeListener("browser:state-changed", listener);
+    };
+  },
 };
 
 try {
