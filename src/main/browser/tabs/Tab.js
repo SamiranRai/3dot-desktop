@@ -95,8 +95,7 @@ class Tab extends EventEmitter {
       },
     });
 
-    // @ADD_LATER_IF_BUG_IN_VIEW:
-    // this.window.contentView.addChildView(this.view);
+    this.window.contentView.addChildView(this.view);
   }
 
   // Setup WebContents Events
