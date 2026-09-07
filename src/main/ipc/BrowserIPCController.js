@@ -13,6 +13,11 @@ class BrowserIPCController {
 
     // Browser State Change Handler Binding
     this.handleBrowserStateChanged = this.handleBrowserStateChanged.bind(this);
+
+    this.handleTabCreated = this.handleTabCreated.bind(this);
+    this.handleTabClosed = this.handleTabClosed.bind(this);
+    this.handleTabActivated = this.handleTabActivated.bind(this);
+    this.handleTabStateChanged = this.handleTabStateChanged.bind(this);
   }
 
   // IPC Handlers Registration
@@ -22,16 +27,25 @@ class BrowserIPCController {
       return;
     }
 
+    // Navigation Handlers
     ipcMain.handle("browser:navigate", this.navigate);
     ipcMain.handle("browser:navigation:back", this.goBack);
     ipcMain.handle("browser:navigation:forward", this.goForward);
     ipcMain.handle("browser:navigation:reload", this.reload);
+
+    // Tab Management Handlers
+    ipcMain.handle("browser:tab:create", this.createTab);
+    ipcMain.handle("browser:tab:close", this.closeTab);
+    ipcMain.handle("browser:tab:activate", this.activateTab);
+    ipcMain.handle("browser:tabs:get", this.getTabs);
 
     // Register the listener for browser:state-changed events
     this.browserManager.on(
       "browser:state-changed",
       this.handleBrowserStateChanged,
     );
+
+    this.setupBrowserEvents();
 
     this.registered = true;
     console.log("BrowserIPCController: IPC handlers registered");
@@ -44,10 +58,17 @@ class BrowserIPCController {
       return;
     }
 
+    // Navigation Handlers
     ipcMain.removeHandler("browser:navigate");
     ipcMain.removeHandler("browser:navigation:back");
     ipcMain.removeHandler("browser:navigation:forward");
     ipcMain.removeHandler("browser:navigation:reload");
+
+    // Tab Management Handlers
+    ipcMain.removeHandler("browser:tab:create");
+    ipcMain.removeHandler("browser:tab:close");
+    ipcMain.removeHandler("browser:tab:activate");
+    ipcMain.removeHandler("browser:tabs:get");
 
     // Remove the listener for browser:state-changed events
     this.browserManager.off(
@@ -55,8 +76,24 @@ class BrowserIPCController {
       this.handleBrowserStateChanged,
     );
 
+    this.setOffBrowserEvents();
+
     this.registered = false;
     console.log("BrowserIPCController: IPC handlers unregistered");
+  }
+
+  setupBrowserEvents() {
+    this.browserManager.on("tab-created", this.handleTabCreated);
+    this.browserManager.on("tab-closed", this.handleTabClosed);
+    this.browserManager.on("tab-activated", this.handleTabActivated);
+    this.browserManager.on("tab-state-changed", this.handleTabStateChanged);
+  }
+
+  setOffBrowserEvents() {
+    this.browserManager.off("tab-created", this.handleTabCreated);
+    this.browserManager.off("tab-closed", this.handleTabClosed);
+    this.browserManager.off("tab-activated", this.handleTabActivated);
+    this.browserManager.off("tab-state-changed", this.handleTabStateChanged);
   }
 
   // browser:state-changed Event Listener
@@ -73,6 +110,30 @@ class BrowserIPCController {
       );
     }
   };
+
+  handleTabCreated(tabState) {
+    this.sendToRenderer("browser:tab-created", tabState);
+  }
+
+  handleTabClosed(data) {
+    this.sendToRenderer("browser:tab-closed", data);
+  }
+
+  handleTabActivated(data) {
+    this.sendToRenderer("browser:tab-activated", data);
+  }
+
+  handleTabStateChanged(data) {
+    this.sendToRenderer("browser:tab-state-changed", data);
+  }
+
+  sendToRenderer(channel, data) {
+    if (!this.window || this.window.isDestroyed()) {
+      return;
+    }
+
+    this.window.webContents.send(channel, data);
+  }
 
   navigate = (event, url) => {
     console.log("BrowserIPCController: browser:navigate called", url);
@@ -111,6 +172,56 @@ class BrowserIPCController {
       return this.browserManager.reload();
     });
   };
+
+  // ----------
+
+  createTab = (ipcEvent, url) => {
+    return this.execute("tab:create", () => {
+      this.validateSender(ipcEvent);
+
+      return this.browserManager.createTab(url);
+    });
+  };
+
+  closeTab = (ipcEvent, tabId) => {
+    return this.execute("tab:close", () => {
+      this.validateSender(ipcEvent);
+
+      if (typeof tabId !== "string" || !tabId.trim()) {
+        throw new AppError({
+          code: ErrorCodes.INVALID_REQUEST,
+          message: "Invalid tab ID.",
+        });
+      }
+
+      return this.browserManager.closeTab(tabId);
+    });
+  };
+
+  activateTab = (ipcEvent, tabId) => {
+    return this.execute("tab:activate", () => {
+      this.validateSender(ipcEvent);
+
+      if (typeof tabId !== "string" || !tabId.trim()) {
+        throw new AppError({
+          code: ErrorCodes.INVALID_REQUEST,
+          message: "Invalid tab ID.",
+        });
+      }
+
+      return this.browserManager.activateTab(tabId);
+    });
+  };
+
+  getTabs = (ipcEvent) => {
+    return this.execute("tabs:get", () => {
+      this.validateSender(ipcEvent);
+
+      return this.browserManager.getAllTabs();
+    });
+  };
+
+  // ---------
 
   // Validation Methods
   validateSender(event) {

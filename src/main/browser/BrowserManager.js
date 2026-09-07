@@ -1,6 +1,9 @@
-const { WebContentsView } = require("electron");
 const { EventEmitter } = require("events");
-const BrowserState = require("./BrowserState");
+const TabManager = require("./tabs/TabManager");
+
+const AppError = require("../errors/AppError");
+const ErrorCodes = require("../errors/ErrorCodes");
+
 /*
 lifecycleState: "created" | "initializing" | "ready" | "error" | "destroyed"
 */
@@ -10,114 +13,162 @@ class BrowserManager extends EventEmitter {
     super();
 
     this.window = window;
-    this.view = null;
-
-    // Browser State
-    this.browserState = new BrowserState();
-
-    // Browser Lifecycle State: "Created"
+    this.tabManager = new TabManager(window);
     this.lifecycleState = "created";
+
+    this.handleTabCreated = this.handleTabCreated.bind(this);
+    this.handleTabClosed = this.handleTabClosed.bind(this);
+    this.handleTabActivated = this.handleTabActivated.bind(this);
+    this.handleTabStateChanged = this.handleTabStateChanged.bind(this);
   }
 
-  // Initialize Method
+  // --------- LIFECYCLE ---------
+
   initialize() {
     if (this.lifecycleState !== "created") {
-      throw new Error(
-        `Cannot initialize BrowserManager from lifecycle state: ${this.lifecycleState}`,
-      );
+      throw new AppError({
+        code: ErrorCodes.BROWSER_NOT_READY,
+        message: `Cannot initialize BrowserManager from state: ${this.lifecycleState}`,
+      });
     }
 
     // Browser Lifecycle State: "Initializing"
     this.lifecycleState = "initializing";
 
     try {
-      // Create a new WebContentsView
-      this.view = new WebContentsView({
-        webPreferences: {
-          sandbox: true,
-          contextIsolation: true,
-          nodeIntegration: false,
-        },
-      });
+      this.tabManager.initialize();
 
-      // Add the WebContentsView to the main window
-      this.window.contentView.addChildView(this.view);
+      this.setupTabEvents();
 
-      // Method Init
-      this.resize();
+      // Create the first tab.
+      this.tabManager.createTab();
 
-      // Load the initial URL (Google in this case)
-      this.view.webContents.loadURL("https://www.google.com");
-
-      // Setup WebContents Events
-      this.setupWebContentsEvents();
-
-      // Browser Lifecycle State: "ready"
       this.lifecycleState = "ready";
+
+      // Important: give the active WebContentsView its initial bounds.
+      this.resize();
 
       // Log the successful initialization
       console.log("BROWSER MANAGER: Initialized successfully");
     } catch (error) {
       this.lifecycleState = "error";
-      console.error("BROWSER MANAGER: Initialization failed:", error);
-      throw error;
+
+      throw new AppError({
+        code: ErrorCodes.BROWSER_INITIALIZATION_FAILED,
+        message: "Failed to initialize BrowserManager.",
+        cause: error,
+      });
     }
   }
 
-  // Setup Chromium Events Method
-  setupWebContentsEvents() {
-    const webContents = this.view.webContents;
-
-    webContents.on("did-start-loading", () => {
-      this.updateBrowserState({ isLoading: true });
-
-      console.log("BROWSER MANAGER: loading started");
-    });
-
-    webContents.on("did-stop-loading", () => {
-      this.updateBrowserState({ isLoading: false });
-
-      console.log("BROWSER MANAGER: loading stopped");
-    });
-
-    webContents.on("did-navigate", (_, url) => {
-      this.updateBrowserState({
-        url,
-        canGoBack: webContents.navigationHistory.canGoBack(),
-        canGoForward: webContents.navigationHistory.canGoForward(),
-      });
-
-      console.log("BROWSER MANAGER: URL changed:", url);
-    });
-
-    webContents.on("page-title-updated", (_, title) => {
-      this.updateBrowserState({ title });
-
-      console.log("BROWSER MANAGER: title changed:", title);
-    });
-  }
-
-  // Update Browser State Method
-  updateBrowserState(patch) {
-    Object.assign(this.browserState, patch);
-
-    // Emit
-    this.emit("browser:state-changed", this.browserState.getSnapshot());
-  }
-
-  // Resize Method
-  resize() {
-    if (!this.view) {
-      console.warn("BROWSER MANAGER: Cannot resize, view is not initialized");
+  destroy() {
+    if (this.lifecycleState === "destroyed") {
       return;
     }
+
+    this.tabManager.off("tab-created", this.handleTabCreated);
+    this.tabManager.off("tab-closed", this.handleTabClosed);
+    this.tabManager.off("tab-activated", this.handleTabActivated);
+    this.tabManager.off("tab-state-changed", this.handleTabStateChanged);
+
+    this.tabManager.destroy();
+
+    this.removeAllListeners();
+
+    this.window = null;
+    this.tabManager = null;
+
+    this.lifecycleState = "destroyed";
+
+    console.log("BROWSER MANAGER: destroyed");
+  }
+
+  // --------- EVENT HANDLERS ---------
+
+  setupTabEvents() {
+    this.tabManager.on("tab-created", this.handleTabCreated);
+    this.tabManager.on("tab-closed", this.handleTabClosed);
+    this.tabManager.on("tab-activated", this.handleTabActivated);
+    this.tabManager.on("tab-state-changed", this.handleTabStateChanged);
+  }
+
+  handleTabCreated(tabState) {
+    console.log("BROWSER MANAGER: tab created", tabState.id);
+    this.emit("tab-created", tabState);
+  }
+
+  handleTabClosed(data) {
+    console.log("BROWSER MANAGER: tab closed", data.tabId);
+    this.emit("tab-closed", data);
+  }
+
+  handleTabActivated(data) {
+    console.log("BROWSER MANAGER: tab activated", data.tabId);
+    this.emit("tab-activated", data);
+  }
+
+  handleTabStateChanged(data) {
+    this.emit("tab-state-changed", data);
+  }
+
+  // --------- TAB OPERATIONS ---------
+
+  createTab(url) {
+    this.assertReady();
+
+    return this.tabManager.createTab(url);
+  }
+
+  closeTab(tabId) {
+    this.assertReady();
+
+    return this.tabManager.closeTab(tabId);
+  }
+
+  activateTab(tabId) {
+    this.assertReady();
+
+    return this.tabManager.activateTab(tabId);
+  }
+
+  getTabById(tabId) {
+    this.assertReady();
+
+    return this.tabManager.getTabById(tabId);
+  }
+
+  getActiveTab() {
+    this.assertReady();
+
+    return this.tabManager.getActiveTab();
+  }
+
+  getAllTabs() {
+    this.assertReady();
+
+    return this.tabManager.getAllTabs();
+  }
+
+  // --------- LAYOUT --------
+
+  resize() {
+    if (this.lifecycleState !== "ready") {
+      return;
+    }
+
     // Get the current size of the main window
     const [width, height] = this.window.getContentSize();
+
+    const activeTab = this.getActiveTab();
+    if (!activeTab) {
+      console.warn("BROWSER MANAGER: No active tab to resize.");
+      return;
+    }
 
     // Fixed toolbar height
     const toolbarHeight = 70;
 
-    this.view.setBounds({
+    activeTab.setBounds({
       x: 0,
       y: toolbarHeight,
       width,
@@ -125,47 +176,62 @@ class BrowserManager extends EventEmitter {
     });
   }
 
-  // Get Snapshot Method
-  getSnapshot() {
-    return this.browserState.getSnapshot();
-  }
+  // --------- BROWSER OPERATIONS ---------
 
-  // ---Navigation Methods---
   navigate(url) {
     this.assertReady();
+
     console.log("BROWSER MANAGER: navigating to:", url);
-    this.view.webContents.loadURL(url);
+
+    const activeTab = this.requireActiveTab();
+    return activeTab.navigate(url);
   }
 
   goBack() {
     this.assertReady();
     console.log("BROWSER MANAGER: navigating back");
-    if (this.view.webContents.navigationHistory.canGoBack()) {
-      this.view.webContents.navigationHistory.goBack();
-    }
+
+    const activeTab = this.requireActiveTab();
+    return activeTab.goBack();
   }
 
   goForward() {
     this.assertReady();
     console.log("BROWSER MANAGER: navigating forward");
-    if (this.view.webContents.navigationHistory.canGoForward()) {
-      this.view.webContents.navigationHistory.goForward();
-    }
+
+    const activeTab = this.requireActiveTab();
+    return activeTab.goForward();
   }
 
   // Reload Method
   reload() {
     this.assertReady();
     console.log("BROWSER MANAGER: reloading page");
-    this.view.webContents.reload();
+
+    const activeTab = this.requireActiveTab();
+    return activeTab.reload();
   }
 
-  // Assert Ready Method
+  // ---------- GUARDS ---------
+
+  requireActiveTab() {
+    const activeTab = this.getActiveTab();
+    if (!activeTab) {
+      throw new AppError({
+        code: ErrorCodes.BROWSER_NO_ACTIVE_TAB,
+        message: "No active tab exists.",
+      });
+    } else {
+      return activeTab;
+    }
+  }
+
   assertReady() {
     if (this.lifecycleState !== "ready") {
-      throw new Error(
-        `BrowserManager is not ready. Current lifecycle state: ${this.lifecycleState}`,
-      );
+      throw new AppError({
+        code: ErrorCodes.BROWSER_NOT_READY,
+        message: `BrowserManager is not ready. Current lifecycle state: ${this.lifecycleState}`,
+      });
     }
   }
 }

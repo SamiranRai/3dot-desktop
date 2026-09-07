@@ -78,23 +78,20 @@ class TabManager extends EventEmitter {
     const tabId = crypto.randomUUID();
 
     const tab = new Tab({ id: tabId, window: this.window });
-    tab.initialize(url);
 
     tab.on("tab-state-changed", (snapshot) => {
       this.emit("tab-state-changed", { tabId: tabId, state: snapshot });
     });
 
+    tab.initialize(url);
+
     // Store Map<TabId, Tab>
     this.tabs.set(tabId, tab);
 
-    this.emit("tab-created", tabId);
+    this.emit("tab-created", tab.getState());
 
-    // First Tab becomes active by default
-    if (!this.activeTabId) {
-      this.setActiveTab(tabId);
-    } else {
-      tab.hide();
-    }
+    // A newly created tab becomes active.
+    this.activateTab(tabId);
 
     console.log(`TAB MANAGER: created tab ${tabId}`);
 
@@ -192,6 +189,7 @@ class TabManager extends EventEmitter {
       return null;
     }
 
+    // Return: Tab Instance
     return this.getTabById(this.activeTabId);
   }
 
@@ -201,6 +199,7 @@ class TabManager extends EventEmitter {
       return null;
     }
 
+    // Return: TabState
     return activeTab.getState();
   }
 

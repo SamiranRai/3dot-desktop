@@ -63,12 +63,13 @@ class Tab extends EventEmitter {
     this.lifecycleState = "initializing";
 
     try {
-      // Create a new WebContentsView and Load the specified URL
+      // Create a new WebContentsView
       this.createView();
-      this.view.webContents.loadURL(url);
 
       // Setup WebContents Events
       this.setupWebContentsEvents();
+
+      this.view.webContents.loadURL(url);
 
       // Tab Lifecycle State: "Ready"
       this.lifecycleState = "ready";

@@ -21,6 +21,38 @@ const browserAPI = {
     ipcRenderer.invoke("browser:navigation:reload");
   },
 
+  createTab: (url) => {
+    ipcRenderer.invoke("browser:tab:create", url);
+  },
+
+  closeTab: (tabId) => {
+    ipcRenderer.invoke("browser:tab:close", tabId);
+  },
+
+  activateTab: (tabId) => {
+    ipcRenderer.invoke("browser:tab:activate", tabId);
+  },
+
+  getTabs: () => {
+    ipcRenderer.invoke("browser:tabs:get");
+  },
+
+  onTabCreated: (callback) => {
+    return subscribe("browser:tab-created", callback);
+  },
+
+  onTabClosed: (callback) => {
+    return subscribe("browser:tab-closed", callback);
+  },
+
+  onTabActivated: (callback) => {
+    return subscribe("browser:tab-activated", callback);
+  },
+
+  onTabStateChanged: (callback) => {
+    return subscribe("browser:tab-state-changed", callback);
+  },
+
   onBrowserStateChanged: (callback) => {
     console.log("PRELOAD: onBrowserStateChanged called");
 
@@ -37,6 +69,18 @@ const browserAPI = {
     };
   },
 };
+
+function subscribe(channel, callback) {
+  const listener = (_event, data) => {
+    callback(data);
+  };
+
+  ipcRenderer.on(channel, listener);
+
+  return () => {
+    ipcRenderer.removeListener(channel, listener);
+  };
+}
 
 try {
   contextBridge.exposeInMainWorld("browser", browserAPI);
