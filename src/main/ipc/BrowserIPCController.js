@@ -1,6 +1,5 @@
 const { ipcMain } = require("electron");
 
-// All Imports
 const AppError = require("./../errors/AppError");
 const ErrorCodes = require("./../errors/ErrorCodes");
 const ErrorHandler = require("./../errors/ErrorHandler");
@@ -11,22 +10,49 @@ class BrowserIPCController {
     this.browserManager = browserManager;
     this.registered = false;
 
-    // Browser State Change Handler Binding
     this.handleBrowserStateChanged = this.handleBrowserStateChanged.bind(this);
-
     this.handleTabCreated = this.handleTabCreated.bind(this);
     this.handleTabClosed = this.handleTabClosed.bind(this);
     this.handleTabActivated = this.handleTabActivated.bind(this);
     this.handleTabStateChanged = this.handleTabStateChanged.bind(this);
   }
 
-  // IPC Handlers Registration
+  // IPC Hnadlers & Event Listeners Registration
   register() {
     if (this.registered) {
       console.warn("BrowserIPCController: IPC handlers already registered");
       return;
     }
 
+    // Register IPC Handler
+    this.setUpIPCHandlers();
+
+    // Register the listener
+    this.setUpBrowserEvents();
+
+    this.registered = true;
+    console.log("BrowserIPCController: IPC handlers registered");
+  }
+
+  // IPC Handlers & Event Listeners Unregistration
+  unRegister() {
+    if (!this.registered) {
+      console.warn("BrowserIPCController: IPC handlers not registered");
+      return;
+    }
+
+    // Unregister IPC Handlers
+    this.setOffIPCHandlers();
+
+    // Remove the listener
+    this.setOffBrowserEvents();
+
+    this.registered = false;
+    console.log("BrowserIPCController: IPC handlers unregistered");
+  }
+
+  // IPC Handlers Setup: React -> Electron (IPC Invokes)
+  setUpIPCHandlers() {
     // Navigation Handlers
     ipcMain.handle("browser:navigate", this.navigate);
     ipcMain.handle("browser:navigation:back", this.goBack);
@@ -38,26 +64,10 @@ class BrowserIPCController {
     ipcMain.handle("browser:tab:close", this.closeTab);
     ipcMain.handle("browser:tab:activate", this.activateTab);
     ipcMain.handle("browser:tabs:get", this.getTabs);
-
-    // Register the listener for browser:state-changed events
-    this.browserManager.on(
-      "browser:state-changed",
-      this.handleBrowserStateChanged,
-    );
-
-    this.setupBrowserEvents();
-
-    this.registered = true;
-    console.log("BrowserIPCController: IPC handlers registered");
   }
 
   // IPC Handlers Unregistration
-  unRegister() {
-    if (!this.registered) {
-      console.warn("BrowserIPCController: IPC handlers not registered");
-      return;
-    }
-
+  setOffIPCHandlers() {
     // Navigation Handlers
     ipcMain.removeHandler("browser:navigate");
     ipcMain.removeHandler("browser:navigation:back");
@@ -69,46 +79,36 @@ class BrowserIPCController {
     ipcMain.removeHandler("browser:tab:close");
     ipcMain.removeHandler("browser:tab:activate");
     ipcMain.removeHandler("browser:tabs:get");
+  }
 
-    // Remove the listener for browser:state-changed events
-    this.browserManager.off(
+  // Browser Event Listeners Setup: Main Process -> Renderer Process (IPC Sends)
+  setUpBrowserEvents() {
+    // Register event listeners for browser events
+    this.browserManager.on(
       "browser:state-changed",
       this.handleBrowserStateChanged,
     );
-
-    this.setOffBrowserEvents();
-
-    this.registered = false;
-    console.log("BrowserIPCController: IPC handlers unregistered");
-  }
-
-  setupBrowserEvents() {
     this.browserManager.on("tab-created", this.handleTabCreated);
     this.browserManager.on("tab-closed", this.handleTabClosed);
     this.browserManager.on("tab-activated", this.handleTabActivated);
     this.browserManager.on("tab-state-changed", this.handleTabStateChanged);
   }
 
+  // Browser Event Listeners Unregistration
   setOffBrowserEvents() {
+    this.browserManager.off(
+      "browser:state-changed",
+      this.handleBrowserStateChanged,
+    );
     this.browserManager.off("tab-created", this.handleTabCreated);
     this.browserManager.off("tab-closed", this.handleTabClosed);
     this.browserManager.off("tab-activated", this.handleTabActivated);
     this.browserManager.off("tab-state-changed", this.handleTabStateChanged);
   }
 
-  // browser:state-changed Event Listener
+  // Event Handlers
   handleBrowserStateChanged = (state) => {
-    if (this.window && !this.window.isDestroyed()) {
-      console.log(
-        "BrowserIPCController: Sending browser:state-changed event to renderer",
-        state,
-      );
-      this.window.webContents.send("browser:state-changed", state);
-    } else {
-      console.warn(
-        "BrowserIPCController: Cannot send browser:state-changed event, window is not available or destroyed",
-      );
-    }
+    this.sendToRenderer("browser:state-changed", state);
   };
 
   handleTabCreated(tabState) {
@@ -127,14 +127,21 @@ class BrowserIPCController {
     this.sendToRenderer("browser:tab-state-changed", data);
   }
 
+  // Helper Method for Sending Events to Renderer
   sendToRenderer(channel, data) {
+    // @NEED_CHECK: need to check if this.window is valid and not destroyed before sending
     if (!this.window || this.window.isDestroyed()) {
+      console.warn(
+        "BrowserIPCController: Cannot send event to renderer, window is not available or destroyed",
+      );
       return;
     }
 
+    // Send the event to the renderer process
     this.window.webContents.send(channel, data);
   }
 
+  // Command Handlers for IPC Requests
   navigate = (event, url) => {
     console.log("BrowserIPCController: browser:navigate called", url);
 
@@ -175,17 +182,18 @@ class BrowserIPCController {
 
   // ----------
 
-  createTab = (ipcEvent, url) => {
+  createTab = (event, url) => {
+    console.log("BrowserIPCController:tab:create called", url);
     return this.execute("tab:create", () => {
-      this.validateSender(ipcEvent);
-
+      this.validateSender(event);
       return this.browserManager.createTab(url);
     });
   };
 
-  closeTab = (ipcEvent, tabId) => {
+  closeTab = (event, tabId) => {
+    console.log("BrowserIPCController:tab:close called", tabId);
     return this.execute("tab:close", () => {
-      this.validateSender(ipcEvent);
+      this.validateSender(event);
 
       if (typeof tabId !== "string" || !tabId.trim()) {
         throw new AppError({
@@ -198,9 +206,10 @@ class BrowserIPCController {
     });
   };
 
-  activateTab = (ipcEvent, tabId) => {
+  activateTab = (event, tabId) => {
+    console.log("BrowserIPCController:tab:activate called", tabId);
     return this.execute("tab:activate", () => {
-      this.validateSender(ipcEvent);
+      this.validateSender(event);
 
       if (typeof tabId !== "string" || !tabId.trim()) {
         throw new AppError({
@@ -213,10 +222,10 @@ class BrowserIPCController {
     });
   };
 
-  getTabs = (ipcEvent) => {
+  getTabs = (event) => {
+    console.log("BrowserIPCController:tabs:get called");
     return this.execute("tabs:get", () => {
-      this.validateSender(ipcEvent);
-
+      this.validateSender(event);
       return this.browserManager.getAllTabs();
     });
   };
@@ -282,6 +291,7 @@ class BrowserIPCController {
     return parsedUrl.toString();
   }
 
+  // Execute a callback and handle errors, returning a standardized response
   async execute(operation, callback) {
     try {
       const data = await callback();
