@@ -1,0 +1,31 @@
+.browser-tab {
+  display: flex;
+  width: 349px;
+  height: 28px;
+  padding: 4px 8px;
+  justify-content: space-between;
+  align-items: center;
+  border-radius: 4px;
+  background: #464646;
+}
+
+.browser-tab-info-container,
+.browser-tab-indicator-container {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.browser-tab-title {
+  color: #fff;
+  font-family: "SF Pro Text";
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: normal;
+  letter-spacing: -0.13px;
+}
+
+.browser-tab--active {
+  background: #ff6a6a;
+}

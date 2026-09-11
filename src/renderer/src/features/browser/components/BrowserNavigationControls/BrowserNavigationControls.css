@@ -1,0 +1,23 @@
+.browser-navigation-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.browser-navigation-controls-button {
+  display: flex;
+  padding: 2px 3px;
+  justify-content: center;
+  align-items: center;
+  border-radius: 4px;
+  color: white;
+}
+
+.browser-navigation-controls-button:hover {
+  background-color: rgba(47, 47, 47, 1);
+}
+
+/* Hide intial, if forward:false */
+.browser-navigation-controls-button--forward {
+  display: none;
+}

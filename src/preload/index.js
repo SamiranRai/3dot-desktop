@@ -1,41 +1,49 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 const browserAPI = {
+  // React -> Electron (IPC Invokes)
+
   navigate: (url) => {
     console.log("PRELOAD: navigate called:", url);
-    ipcRenderer.invoke("browser:navigate", url);
+    return ipcRenderer.invoke("browser:navigate", url);
   },
 
   goBack: () => {
     console.log("PRELOAD: goBack called");
-    ipcRenderer.invoke("browser:navigation:back");
+    return ipcRenderer.invoke("browser:navigation:back");
   },
 
   goForward: () => {
     console.log("PRELOAD: goForward called");
-    ipcRenderer.invoke("browser:navigation:forward");
+    return ipcRenderer.invoke("browser:navigation:forward");
   },
 
   reload: () => {
     console.log("PRELOAD: reload called");
-    ipcRenderer.invoke("browser:navigation:reload");
+    return ipcRenderer.invoke("browser:navigation:reload");
   },
 
   createTab: (url) => {
-    ipcRenderer.invoke("browser:tab:create", url);
+    console.log("PRELOAD: Tab created with URL:", url);
+    return ipcRenderer.invoke("browser:tab:create", url);
   },
 
   closeTab: (tabId) => {
-    ipcRenderer.invoke("browser:tab:close", tabId);
+    console.log("PRELOAD: Tab closed with ID:", tabId);
+    return ipcRenderer.invoke("browser:tab:close", tabId);
   },
 
   activateTab: (tabId) => {
-    ipcRenderer.invoke("browser:tab:activate", tabId);
+    console.log("PRELOAD: Tab activated with ID:", tabId);
+    return ipcRenderer.invoke("browser:tab:activate", tabId);
   },
 
   getTabs: () => {
-    ipcRenderer.invoke("browser:tabs:get");
+    console.log("PRELOAD: getTabs called");
+    return ipcRenderer.invoke("browser:tabs:get");
   },
+
+  // Electron -> React (IPC Listeners)
 
   onTabCreated: (callback) => {
     return subscribe("browser:tab-created", callback);

@@ -233,7 +233,7 @@ class Tab extends EventEmitter {
         }
 
         if (this.window?.contentView) {
-          this.window.contentView.removeChild(this.view);
+          this.window.contentView.removeChildView(this.view);
         }
       }
     } finally {

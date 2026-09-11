@@ -1,10 +1,9 @@
 import "./App.css";
-
+import { BrowserTopBar } from "@/features/browser/components/BrowserTopBar";
 function App() {
   return (
-    <div className="browser-app">
-
-      <main className="browser-content"></main>
+    <div className="App">
+      <BrowserTopBar />
     </div>
   );
 }

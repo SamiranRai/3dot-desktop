@@ -99,11 +99,15 @@ class BrowserManager extends EventEmitter {
 
   handleTabClosed(data) {
     console.log("BROWSER MANAGER: tab closed", data.tabId);
+
     this.emit("tab-closed", data);
   }
 
   handleTabActivated(data) {
     console.log("BROWSER MANAGER: tab activated", data.tabId);
+    const tab = this.tabManager.getTabById(data.tabId);
+
+    this.resizeTab(tab);
     this.emit("tab-activated", data);
   }
 
@@ -151,29 +155,31 @@ class BrowserManager extends EventEmitter {
 
   // --------- LAYOUT --------
 
+  resizeTab(tab) {
+    const [width, height] = this.window.getContentSize();
+
+    const toolbarHeight = 56;
+
+    tab.setBounds({
+      x: 0,
+      y: toolbarHeight,
+      width,
+      height: Math.max(0, height - toolbarHeight),
+    });
+  }
+
   resize() {
     if (this.lifecycleState !== "ready") {
       return;
     }
 
-    // Get the current size of the main window
-    const [width, height] = this.window.getContentSize();
-
     const activeTab = this.getActiveTab();
+
     if (!activeTab) {
-      console.warn("BROWSER MANAGER: No active tab to resize.");
       return;
     }
 
-    // Fixed toolbar height
-    const toolbarHeight = 70;
-
-    activeTab.setBounds({
-      x: 0,
-      y: toolbarHeight,
-      width,
-      height: height - toolbarHeight,
-    });
+    this.resizeTab(activeTab);
   }
 
   // --------- BROWSER OPERATIONS ---------

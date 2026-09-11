@@ -1,0 +1,9 @@
+.browser-top-bar {
+  display: flex;
+  height: 56px;
+  padding: 10px 42px;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  background: #191919;
+}
