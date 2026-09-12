@@ -139,7 +139,7 @@ class Tab extends EventEmitter {
   // Update the tab state and emit a tab-state-changed event
   updateTabState(patch) {
     Object.assign(this.tabState, patch);
-    this.emit("tab-state-changed", this.tabState.getSnapshot());
+    this.emit('tab-state-changed', this.getState());
   }
 
   // Get the current state of the tab

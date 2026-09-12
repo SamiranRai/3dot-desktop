@@ -1,8 +1,8 @@
 const { BrowserWindow } = require("electron");
 const path = require("path");
 
-import AppError from "../error/AppError";
-import ErrorCode from "../error/ErrorCode";
+const AppError = require("./../errors/AppError");
+const ErrorCodes = require("./../errors/ErrorCodes");
 const BrowserManager = require("../browser/BrowserManager");
 const BrowserIPCController = require("../ipc/BrowserIPCController");
 
@@ -19,7 +19,7 @@ class Application {
   start() {
     if (this.lifecycleState !== "created") {
       throw new AppError({
-        code: ErrorCode.INVALID_APPLICATION_STATE,
+        code: ErrorCodes.APPLICATION_NOT_READY,
         message: `Application is already started or in an invalid state: ${this.lifecycleState}`,
       });
     }

@@ -2,7 +2,6 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const browserAPI = {
   // React -> Electron (IPC Invokes)
-
   navigate: (url) => {
     console.log("PRELOAD: navigate called:", url);
     return ipcRenderer.invoke("browser:navigate", url);
@@ -62,19 +61,7 @@ const browserAPI = {
   },
 
   onBrowserStateChanged: (callback) => {
-    console.log("PRELOAD: onBrowserStateChanged called");
-
-    const listener = (_event, state) => {
-      console.log("PRELOAD: browser:state-changed event received:", state);
-      callback(state);
-    };
-
-    ipcRenderer.on("browser:state-changed", listener);
-
-    // Return a function to unsubscribe
-    return () => {
-      ipcRenderer.removeListener("browser:state-changed", listener);
-    };
+    return subscribe("browser:state-changed", callback);
   },
 };
 

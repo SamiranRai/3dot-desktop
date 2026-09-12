@@ -1,24 +1,55 @@
+import { useEffect, useState } from "react";
+
 import IconButton from "@/shared/components/IconButton";
 import { ForwardIcon, BackwardIcon } from "@/shared/icons";
+import type { TabDTO } from "@/api/browser";
 
 import "./BrowserNavigationControls.css";
 
 const BrowserNavigationControls = () => {
+  const [activeTabState, setActiveTabState] = useState<TabDTO | null>(null);
+
+  useEffect(() => {
+    const unsubscribeTabActivated = window.browser.onTabActivated((data) => {
+      setActiveTabState(data.state);
+    });
+
+    const unsubscribeTabStateChanged = window.browser.onTabStateChanged(
+      (data) => {
+        // Only update if this state belongs to the currently active tab.
+        setActiveTabState((currentTab) => {
+          if (!currentTab || currentTab.id !== data.tabId) {
+            return currentTab;
+          }
+
+          return data.state;
+        });
+      },
+    );
+
+    return () => {
+      unsubscribeTabActivated();
+      unsubscribeTabStateChanged();
+    };
+  }, []);
+
+  // const canGoBack = activeTab?.canGoBack ?? false;
+  // const canGoForward = activeTab?.canGoForward ?? false;
+
   const handleGoBack = async () => {
+    // if (!canGoBack) {
+    //   return;
+    // }
+
     try {
       const result = await window.browser.goBack();
-      console.log("BrowserNavigationControls: go back result", result);
 
       if (!result.success) {
         console.error(
           "BrowserNavigationControls: failed to go back",
           result.error,
         );
-
-        return;
       }
-
-      console.log("BrowserNavigationControls: go back result", result.data);
     } catch (error) {
       console.error(
         "BrowserNavigationControls: unexpected error while going back",
@@ -28,6 +59,10 @@ const BrowserNavigationControls = () => {
   };
 
   const handleGoForward = async () => {
+    // if (!canGoForward) {
+    //   return;
+    // }
+
     try {
       const result = await window.browser.goForward();
 
@@ -36,11 +71,7 @@ const BrowserNavigationControls = () => {
           "BrowserNavigationControls: failed to go forward",
           result.error,
         );
-
-        return;
       }
-
-      console.log("BrowserNavigationControls: go forward result", result.data);
     } catch (error) {
       console.error(
         "BrowserNavigationControls: unexpected error while going forward",
@@ -55,15 +86,16 @@ const BrowserNavigationControls = () => {
         ariaLabel="Go back"
         className="browser-navigation-controls-button browser-navigation-controls-button--backward"
         onClick={handleGoBack}
+        // disabled={!canGoBack}
       >
         <BackwardIcon />
       </IconButton>
-      {
-      }
+
       <IconButton
         ariaLabel="Go forward"
         className="browser-navigation-controls-button browser-navigation-controls-button--forward"
         onClick={handleGoForward}
+        // disabled={!canGoForward}
       >
         <ForwardIcon />
       </IconButton>

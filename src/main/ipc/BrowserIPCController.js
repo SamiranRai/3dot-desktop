@@ -111,20 +111,22 @@ class BrowserIPCController {
     this.sendToRenderer("browser:state-changed", state);
   };
 
-  handleTabCreated(tabState) {
-    this.sendToRenderer("browser:tab-created", tabState);
+  handleTabCreated({ tabId, tab }) {
+    console.log("BrowserIPCController: tab created", { tabId, tab });
+    this.sendToRenderer("browser:tab-created", { tabId, tab });
   }
 
-  handleTabClosed(data) {
-    this.sendToRenderer("browser:tab-closed", data);
+  handleTabClosed(tabId) {
+    this.sendToRenderer("browser:tab-closed", tabId);
   }
 
-  handleTabActivated(data) {
-    this.sendToRenderer("browser:tab-activated", data);
+  handleTabActivated({ tabId, tab }) {
+    this.sendToRenderer("browser:tab-activated", { tabId, tab });
   }
 
-  handleTabStateChanged(data) {
-    this.sendToRenderer("browser:tab-state-changed", data);
+  handleTabStateChanged({ tabId, tab }) {
+    console.log("BrowserIPCController: tab state changed", { tabId, tab });
+    this.sendToRenderer("browser:tab-state-changed", { tabId, tab });
   }
 
   // Helper Method for Sending Events to Renderer

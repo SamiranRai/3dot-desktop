@@ -115,6 +115,7 @@ class BrowserManager extends EventEmitter {
   }
 
   handleTabStateChanged({ tabId, tab }) {
+    console.log("BROWSER MANAGER: tab state changed", { tabId, tab });
     this.emit("tab-state-changed", { tabId, tab });
   }
 

@@ -1,35 +1,53 @@
-import { useEffect, useState } from "react";
-import type TabState from "../Tab/TabState";
-import "./Tabs.css";
-import Tab from "../Tab/Tab";
+import { useEffect, useState } from 'react';
+import type { TabDTO } from '@/api/browser';
+import Tab from './../Tab/Tab';
+import './Tabs.css';
 
 const Tabs = () => {
-  const [tabs, setTabs] = useState<TabState[]>([]);
+  const [tabs, setTabs] = useState<TabDTO[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = window.browser.onTabCreated((tab) => {
-      console.log("React: received new tab", tab);
-
+    const unsubscribeTabCreated = window.browser.onTabCreated((data) => {
+      const { tab } = data;
+      // Add Tab
       setTabs((currentTabs) => [...currentTabs, tab]);
     });
+    const unsubscribeTabStateChanged = window.browser.onTabStateChanged(
+      (data) => {
+        console.log('unsubscribeTabStateChanged', data);
+        const { tab, tabId } = data;
+        setTabs((currentTabs) => {
+          return currentTabs.map((t) =>
+            t.id === tabId ? { ...t, ...tab } : t
+          );
+        });
+      }
+    );
+    const unsubscribeTabActivated = window.browser.onTabActivated((data) => {
+      const { tabId } = data;
+      setActiveTabId(tabId);
+    });
 
-    return unsubscribe;
+    // Cleanup subscriptions on unmount
+    return () => {
+      unsubscribeTabCreated();
+      unsubscribeTabStateChanged();
+      unsubscribeTabActivated();
+    };
   }, []);
 
+  console.log('Tabs:', tabs);
   const handleActivateTab = async (tabId: string) => {
     try {
       const result = await window.browser.activateTab(tabId);
 
       if (!result.success) {
-        console.error("Tabs: failed to activate tab", result.error);
-
+        console.error('Tabs: failed to activate tab', result.error);
         return;
       }
-
-      setActiveTabId(tabId);
     } catch (error) {
-      console.error("Tabs: unexpected error activating tab", error);
+      console.error('Tabs: unexpected error activating tab', error);
     }
   };
 
@@ -38,21 +56,15 @@ const Tabs = () => {
       const result = await window.browser.closeTab(tabId);
 
       if (!result.success) {
-        console.error("Tabs: failed to closing tab", result.error);
-
+        console.error('Tabs: failed to close tab', result.error);
         return;
       }
 
       setTabs((currentTabs) => currentTabs.filter((tab) => tab.id !== tabId));
-
-      if (activeTabId === tabId) {
-        setActiveTabId(tabId);
-      }
     } catch (error) {
-      console.error("Tabs: unexpected error closing tab", error);
+      console.error('Tabs: unexpected error closing tab', error);
     }
   };
-
   return (
     <div className="browser-tabs">
       {tabs.map((tab) => (

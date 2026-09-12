@@ -10,6 +10,9 @@ const DEFAULT_NEW_TAB_URL = "https://www.google.com";
 /*
 @Class: TabManager
 @Description: Manages a collection of tabs within a browser window.
+
+tab: snapshot of a tab's state, including its ID, URL, title, and navigation history.
+{ tabId, tab: snapshot }
 */
 
 class TabManager extends EventEmitter {
@@ -79,8 +82,9 @@ class TabManager extends EventEmitter {
 
     const tab = new Tab({ id: tabId, window: this.window });
 
-    tab.on("tab-state-changed", (snapshot) => {
-      this.emit("tab-state-changed", { tabId: tabId, state: snapshot });
+    tab.on("tab-state-changed", (tab) => {
+      console.log("TAB MANAGER: tab state changed", { tabId, tab });
+      this.emit("tab-state-changed", { tabId, tab });
     });
 
     tab.initialize(url);
@@ -88,7 +92,10 @@ class TabManager extends EventEmitter {
     // Store Map<TabId, Tab>
     this.tabs.set(tabId, tab);
 
-    this.emit("tab-created", tab.getState());
+    this.emit("tab-created", {
+      tabId,
+      tab: tab.getState(),
+    });
 
     // A newly created tab becomes active.
     this.activateTab(tabId);
@@ -163,7 +170,7 @@ class TabManager extends EventEmitter {
 
     this.emit("tab-activated", {
       tabId,
-      state: tab.getState(),
+      tab: tab.getState(),
     });
 
     console.log(`TAB MANAGER: activated tab ${tabId}`);

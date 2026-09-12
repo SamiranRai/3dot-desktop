@@ -43,6 +43,3 @@ const BrowserActions = () => {
 };
 
 export default BrowserActions;
-function useEffect(arg0: () => void) {
-  throw new Error("Function not implemented.");
-}
