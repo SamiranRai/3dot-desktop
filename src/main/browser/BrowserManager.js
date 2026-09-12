@@ -38,7 +38,7 @@ class BrowserManager extends EventEmitter {
     try {
       this.tabManager.initialize();
 
-      this.setupTabEvents();
+      this.setUpTabEvents();
 
       // Create the first tab.
       this.tabManager.createTab();
@@ -85,34 +85,37 @@ class BrowserManager extends EventEmitter {
 
   // --------- EVENT HANDLERS ---------
 
-  setupTabEvents() {
+  setUpTabEvents() {
     this.tabManager.on("tab-created", this.handleTabCreated);
     this.tabManager.on("tab-closed", this.handleTabClosed);
     this.tabManager.on("tab-activated", this.handleTabActivated);
     this.tabManager.on("tab-state-changed", this.handleTabStateChanged);
   }
 
-  handleTabCreated(tabState) {
-    console.log("BROWSER MANAGER: tab created", tabState.id);
-    this.emit("tab-created", tabState);
+  handleTabCreated({ tabId, tab }) {
+    console.log("BROWSER MANAGER: tab created", tabId);
+    this.emit("tab-created", { tabId, tab });
   }
 
-  handleTabClosed(data) {
-    console.log("BROWSER MANAGER: tab closed", data.tabId);
+  handleTabClosed(tabId) {
+    console.log("BROWSER MANAGER: tab closed", tabId);
 
-    this.emit("tab-closed", data);
+    this.emit("tab-closed", tabId);
   }
 
-  handleTabActivated(data) {
-    console.log("BROWSER MANAGER: tab activated", data.tabId);
-    const tab = this.tabManager.getTabById(data.tabId);
+  handleTabActivated({ tabId, tab }) {
+    console.log("BROWSER MANAGER: tab activated", tabId);
+    // Electron Tab
+    tab = this.tabManager.getTabById(tabId);
 
+    // console.log("BROWSER MANAGER: tab activated state after getTabById", tab);
     this.resizeTab(tab);
-    this.emit("tab-activated", data);
+
+    this.emit("tab-activated", { tabId, tab: tab.getState() });
   }
 
-  handleTabStateChanged(data) {
-    this.emit("tab-state-changed", data);
+  handleTabStateChanged({ tabId, tab }) {
+    this.emit("tab-state-changed", { tabId, tab });
   }
 
   // --------- TAB OPERATIONS ---------
