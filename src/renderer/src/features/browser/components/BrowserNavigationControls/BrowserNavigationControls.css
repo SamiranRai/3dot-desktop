@@ -17,7 +17,7 @@
   background-color: rgba(47, 47, 47, 1);
 }
 
-/* Hide intial, if forward:false */
-.browser-navigation-controls-button--forward {
-  display: none;
+/* Hide initial, if forward:false */
+.browser-navigation-controls-button--forward--hide {
+  visibility: hidden;
 }

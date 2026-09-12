@@ -1,57 +1,45 @@
-import type { MouseEvent } from "react";
-import type { TabDTO } from "@/api/browser";
-import IconButton from "@/shared/components/IconButton";
-import { CloseIcon, MuteIcon, ReloadIcon } from "@/shared/icons";
-import "./Tab.css";
+import { useBrowser } from '@/features/browser/state/BrowserContext';
+import type { TabDTO } from '@/api/browser';
+import IconButton from '@/shared/components/IconButton';
+import { CloseIcon, MuteIcon, ReloadIcon } from '@/shared/icons';
+import './Tab.css';
 
 interface TabProps {
   tab: TabDTO;
   isActive: boolean;
-  onActivate: (tabId: string) => void;
-  onClose: (tabId: string) => void;
-  // onReload: (tabId: string) => void;
-  // onToggleMute: (tabId: string) => void;
 }
 
-const Tab = ({
-  tab,
-  isActive,
-  onActivate,
-  onClose,
-  // onReload,
-  // onToggleMute,
-}: TabProps) => {
-  const handleTabClick = () => {
-    if (!isActive) {
-      onActivate(tab.id);
-    }
+const Tab = ({ tab, isActive }: TabProps) => {
+  const { activateTab, closeTab } = useBrowser();
 
-    console.log("Tab: clicked tab", tab);
+  const handleActivate = () => {
+    activateTab(tab.id);
   };
 
-  const handleClose = (event: MouseEvent) => {
+  const handleClose = (event: React.MouseEvent) => {
     event.stopPropagation();
-    onClose(tab.id);
+
+    closeTab(tab.id);
   };
 
-  const handleReload = (event: MouseEvent) => {
+  const handleReload = (event: React.MouseEvent) => {
     event.stopPropagation();
     // onReload(tab.id);
   };
 
-  const handleToggleMute = (event: MouseEvent) => {
+  const handleToggleMute = (event: React.MouseEvent) => {
     event.stopPropagation();
     // onToggleMute(tab.id);
   };
 
-  const title = tab.title || "New Tab";
+  const title = tab.title || 'New Tab';
 
   return (
     <div
-      className={`browser-tab ${isActive ? "browser-tab--active" : ""}`}
+      className={`browser-tab ${isActive ? 'browser-tab--active' : ''}`}
       role="tab"
       aria-selected={isActive}
-      onClick={handleTabClick}
+      onClick={handleActivate}
     >
       <div className="browser-tab-info-container">
         <IconButton

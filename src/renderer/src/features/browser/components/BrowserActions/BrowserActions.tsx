@@ -6,14 +6,12 @@ import "./BrowserActions.css";
 const BrowserActions = () => {
   const handleNewTabCreate = async () => {
     try {
-      const result = await window.browser.createTab("http://www.google.com");
-
+      // Create tab default url=google.com
+      const result = await window.browser.createTab('http://www.google.com');
       if (!result.success) {
-        console.error("BrowserActions: failed to create new tab", result.error);
+        console.error('BrowserActions: failed to create new tab', result.error);
         return;
       }
-
-      console.log("BrowserActions: new tab created successfully");
     } catch (error) {
       console.error(
         "BrowserActions: unexpected error while creating new tab",
