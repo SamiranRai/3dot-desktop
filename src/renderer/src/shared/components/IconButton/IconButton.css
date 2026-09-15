@@ -1,18 +1,26 @@
 .icon-button {
-  display: flex;
-  padding: 2px 3px;
-  justify-content: center;
+  display: inline-flex;
   align-items: center;
-  border-radius: 4px;
+  justify-content: center;
+
+  padding: 2px 3px;
+
   border: none;
+  border-radius: 4px;
+
   background: transparent;
+
+  cursor: pointer;
+}
+
+.icon-button-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  line-height: 0;
 }
 
 .icon-button:hover {
   background: #2f2f2f;
-}
-
-.icon-button-icon {
-  height: 24px;
-  width: 24px;
 }

@@ -47,12 +47,12 @@ class Tab extends EventEmitter {
     this.tabState = new TabState();
 
     // Tab Lifecycle State: "Created"
-    this.lifecycleState = "created";
+    this.lifecycleState = 'created';
   }
 
   // Intializing Tab, Default URL=Google
-  initialize(url = "https://www.google.com") {
-    if (this.lifecycleState !== "created") {
+  initialize(url) {
+    if (this.lifecycleState !== 'created') {
       throw new AppError({
         code: ErrorCodes.BROWSER_INITIALIZATION_FAILED,
         message: `Cannot initialize Tab from lifecycle state: ${this.lifecycleState}`,
@@ -60,7 +60,7 @@ class Tab extends EventEmitter {
     }
 
     // Tab Lifecycle State: "Initializing"
-    this.lifecycleState = "initializing";
+    this.lifecycleState = 'initializing';
 
     try {
       // Create a new WebContentsView
@@ -72,11 +72,11 @@ class Tab extends EventEmitter {
       this.view.webContents.loadURL(url);
 
       // Tab Lifecycle State: "Ready"
-      this.lifecycleState = "ready";
+      this.lifecycleState = 'ready';
 
       console.log(`TAB [${this.id}]: initialized`);
     } catch (error) {
-      this.lifecycleState = "error";
+      this.lifecycleState = 'error';
       console.error(`TAB [${this.id}]: initialization failed`, error);
       throw new AppError({
         code: ErrorCodes.BROWSER_INITIALIZATION_FAILED,
@@ -104,14 +104,14 @@ class Tab extends EventEmitter {
     const webContents = this.view.webContents;
 
     // Event: Page starts loading
-    webContents.on("did-start-loading", () => {
+    webContents.on('did-start-loading', () => {
       this.updateTabState({
         isLoading: true,
       });
     });
 
     // Event: Page stops loading
-    webContents.on("did-stop-loading", () => {
+    webContents.on('did-stop-loading', () => {
       this.updateTabState({
         isLoading: false,
         canGoBack: webContents.navigationHistory.canGoBack(),
@@ -120,7 +120,7 @@ class Tab extends EventEmitter {
     });
 
     // Event: Navigation occurs
-    webContents.on("did-navigate", (_event, url) => {
+    webContents.on('did-navigate', (_event, url) => {
       this.updateTabState({
         url,
         canGoBack: webContents.navigationHistory.canGoBack(),
@@ -129,7 +129,7 @@ class Tab extends EventEmitter {
     });
 
     // Event: Page title updates
-    webContents.on("page-title-updated", (_event, title) => {
+    webContents.on('page-title-updated', (_event, title) => {
       this.updateTabState({
         title,
       });
@@ -156,14 +156,14 @@ class Tab extends EventEmitter {
   // Navigate to a new URL
   navigate(url) {
     this.assertReady();
-    console.log("BROWSER MANAGER: navigating to:", url);
+    console.log('BROWSER MANAGER: navigating to:', url);
     return this.view.webContents.loadURL(url);
   }
 
   // Go back in the navigation history
   goBack() {
     this.assertReady();
-    console.log("BROWSER MANAGER: navigating back");
+    console.log('BROWSER MANAGER: navigating back');
     if (!this.view.webContents.navigationHistory.canGoBack()) {
       return false;
     }
@@ -175,7 +175,7 @@ class Tab extends EventEmitter {
   // Go forward in the navigation history
   goForward() {
     this.assertReady();
-    console.log("BROWSER MANAGER: navigating forward");
+    console.log('BROWSER MANAGER: navigating forward');
     if (!this.view.webContents.navigationHistory.canGoForward()) {
       return false;
     }
@@ -186,7 +186,7 @@ class Tab extends EventEmitter {
   // Reload Method
   reload() {
     this.assertReady();
-    console.log("BROWSER MANAGER: reloading page");
+    console.log('BROWSER MANAGER: reloading page');
     this.view.webContents.reload();
   }
 
@@ -210,7 +210,7 @@ class Tab extends EventEmitter {
 
   // Assert Ready Method
   assertReady() {
-    if (this.lifecycleState !== "ready") {
+    if (this.lifecycleState !== 'ready') {
       throw new AppError({
         code: ErrorCodes.BROWSER_NOT_READY,
         message: `Tab is not ready. Current state: ${this.lifecycleState}`,
@@ -219,7 +219,7 @@ class Tab extends EventEmitter {
   }
 
   destroy() {
-    if (this.lifecycleState === "destroyed") {
+    if (this.lifecycleState === 'destroyed') {
       console.warn(`TAB [${this.id}]: already destroyed`);
       return;
     }
@@ -243,7 +243,7 @@ class Tab extends EventEmitter {
 
       this.removeAllListeners();
 
-      this.lifecycleState = "destroyed";
+      this.lifecycleState = 'destroyed';
       console.log(`TAB [${this.id}]: destroyed`);
     }
   }

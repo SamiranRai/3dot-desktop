@@ -162,7 +162,7 @@ class BrowserManager extends EventEmitter {
   resizeTab(tab) {
     const [width, height] = this.window.getContentSize();
 
-    const toolbarHeight = 56;
+    const toolbarHeight = 76;
 
     tab.setBounds({
       x: 0,

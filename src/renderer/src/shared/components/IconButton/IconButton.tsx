@@ -19,14 +19,14 @@ function IconButton({
   className,
   children,
   ariaLabel,
-  type = "button",
+  type = 'button',
   ref,
   ...props
 }: IconButtonProps) {
   return (
     <button
       type={type}
-      className={clsx("icon-button", className)}
+      className={clsx('icon-button', className)}
       aria-label={ariaLabel}
       ref={ref}
       {...props}

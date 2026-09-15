@@ -3,6 +3,7 @@ const { ipcMain } = require("electron");
 const AppError = require("./../errors/AppError");
 const ErrorCodes = require("./../errors/ErrorCodes");
 const ErrorHandler = require("./../errors/ErrorHandler");
+const NavigationResolver = require("./../browser/navigation-resolver/NavigationResolver");
 
 class BrowserIPCController {
   constructor(browserManager, window) {
@@ -144,14 +145,36 @@ class BrowserIPCController {
   }
 
   // Command Handlers for IPC Requests
-  navigate = (event, url) => {
-    console.log("BrowserIPCController: browser:navigate called", url);
-
+  navigate = (event, input) => {
     return this.execute("browser:navigate", () => {
-      console.log("BrowserIPCController: Validating sender and URL");
+      console.log("BrowserIPCController: Validating sender and input");
+
+      // Validate the sender of the IPC request
       this.validateSender(event);
-      const validatedUrl = this.validateNavigationUrl(url);
-      return this.browserManager.navigate(validatedUrl);
+
+      // Validate input
+      if (typeof input !== "string") {
+        throw new AppError({
+          code: ErrorCodes.INVALID_REQUEST,
+          message: "Invalid Input.",
+        });
+      }
+
+      // Resolve the input to a URL or search query
+      const resolvedUrl = NavigationResolver.resolve(input);
+      if (!resolvedUrl) {
+        throw new AppError({
+          code: ErrorCodes.INVALID_REQUEST,
+          message: "Invalid URL or search query.",
+        });
+      }
+
+      // Navigate to the resolved URL
+      console.log(
+        "BrowserIPCController: Navigating to resolved URL",
+        resolvedUrl,
+      );
+      return this.browserManager.navigate(resolvedUrl);
     });
   };
 
@@ -246,51 +269,6 @@ class BrowserIPCController {
     // We will make this stricter when
     // Application / BrowserWindow ownership
     // is finalized.
-  }
-
-  validateNavigationUrl(url) {
-    if (typeof url !== "string") {
-      throw new AppError({
-        code: ErrorCodes.INVALID_URL,
-        message: "URL must be a string.",
-      });
-    }
-
-    const trimmedUrl = url.trim();
-
-    if (!trimmedUrl) {
-      throw new AppError({
-        code: ErrorCodes.INVALID_URL,
-        message: "URL cannot be empty.",
-      });
-    }
-
-    let parsedUrl;
-
-    try {
-      parsedUrl = new URL(trimmedUrl);
-    } catch (error) {
-      throw new AppError({
-        code: ErrorCodes.INVALID_URL,
-        message: "Invalid URL.",
-        cause: error,
-      });
-    }
-
-    const allowedProtocols = ["http:", "https:"];
-
-    if (!allowedProtocols.includes(parsedUrl.protocol)) {
-      throw new AppError({
-        code: ErrorCodes.UNSUPPORTED_PROTOCOL,
-        message: "Only HTTP and HTTPS URLs are allowed.",
-        details: {
-          protocol: parsedUrl.protocol,
-        },
-      });
-    }
-
-    // Return the validated URL as a string
-    return parsedUrl.toString();
   }
 
   // Execute a callback and handle errors, returning a standardized response

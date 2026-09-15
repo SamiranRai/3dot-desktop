@@ -7,7 +7,8 @@ const BrowserActions = () => {
   const handleNewTabCreate = async () => {
     try {
       // Create tab default url=google.com
-      const result = await window.browser.createTab('http://www.google.com');
+      const NEW_TAB_URL = 'http://localhost:5173/start';
+      const result = await window.browser.createTab(NEW_TAB_URL);
       if (!result.success) {
         console.error('BrowserActions: failed to create new tab', result.error);
         return;
