@@ -1,13 +1,15 @@
 const { ipcMain } = require("electron");
 
-const AppError = require("./../errors/AppError");
-const ErrorCodes = require("./../errors/ErrorCodes");
-const ErrorHandler = require("./../errors/ErrorHandler");
-const NavigationResolver = require("./../browser/navigation-resolver/NavigationResolver");
+const AppError = require("../../errors/AppError");
+const ErrorCodes = require("../../errors/ErrorCodes");
+const ErrorHandler = require("../../errors/ErrorHandler");
+const NavigationResolver = require("../../domains/browser/runtime/navigation-resolver/NavigationResolver");
 
-class BrowserIPCController {
-  constructor(browserManager, window) {
+class BrowserIPCAdapter {
+  // @NEED: we need browser manager also for events
+  constructor(browserCapabilities, browserManager, window) {
     this.window = window;
+    this.browserCapabilities = browserCapabilities;
     this.browserManager = browserManager;
     this.registered = false;
 
@@ -21,7 +23,7 @@ class BrowserIPCController {
   // IPC Hnadlers & Event Listeners Registration
   register() {
     if (this.registered) {
-      console.warn("BrowserIPCController: IPC handlers already registered");
+      console.warn("BrowserIPCAdapter: IPC handlers already registered");
       return;
     }
 
@@ -32,13 +34,13 @@ class BrowserIPCController {
     this.setUpBrowserEvents();
 
     this.registered = true;
-    console.log("BrowserIPCController: IPC handlers registered");
+    console.log("BrowserIPCAdapter: IPC handlers registered");
   }
 
   // IPC Handlers & Event Listeners Unregistration
   unRegister() {
     if (!this.registered) {
-      console.warn("BrowserIPCController: IPC handlers not registered");
+      console.warn("BrowserIPCAdapter: IPC handlers not registered");
       return;
     }
 
@@ -49,7 +51,7 @@ class BrowserIPCController {
     this.setOffBrowserEvents();
 
     this.registered = false;
-    console.log("BrowserIPCController: IPC handlers unregistered");
+    console.log("BrowserIPCAdapter: IPC handlers unregistered");
   }
 
   // IPC Handlers Setup: React -> Electron (IPC Invokes)
@@ -174,7 +176,7 @@ class BrowserIPCController {
         "BrowserIPCController: Navigating to resolved URL",
         resolvedUrl,
       );
-      return this.browserManager.navigate(resolvedUrl);
+      return this.browserCapabilities.navigation.navigate(resolvedUrl);
     });
   };
 
@@ -183,7 +185,7 @@ class BrowserIPCController {
 
     return this.execute("browser:navigation:back", () => {
       this.validateSender(event);
-      return this.browserManager.goBack();
+      return this.browserCapabilities.navigation.goBack();
     });
   };
 
@@ -192,7 +194,7 @@ class BrowserIPCController {
 
     return this.execute("browser:navigation:forward", () => {
       this.validateSender(event);
-      return this.browserManager.goForward();
+      return this.browserCapabilities.navigation.goForward();
     });
   };
 
@@ -201,17 +203,17 @@ class BrowserIPCController {
 
     return this.execute("browser:navigation:reload", () => {
       this.validateSender(event);
-      return this.browserManager.reload();
+      return this.browserCapabilities.navigation.reload();
     });
   };
 
   // ----------
 
   createTab = (event, url) => {
-    console.log("BrowserIPCController:tab:create called", url);
+    console.log("BrowserIPCAdapter:tab:create called", url);
     return this.execute("tab:create", () => {
       this.validateSender(event);
-      return this.browserManager.createTab(url);
+      return this.browserCapabilities.tabs.createTab(url);
     });
   };
 
@@ -227,7 +229,7 @@ class BrowserIPCController {
         });
       }
 
-      return this.browserManager.closeTab(tabId);
+      return this.browserCapabilities.tabs.closeTab(tabId);
     });
   };
 
@@ -243,7 +245,7 @@ class BrowserIPCController {
         });
       }
 
-      return this.browserManager.activateTab(tabId);
+      return this.browserCapabilities.tabs.activateTab(tabId);
     });
   };
 
@@ -251,7 +253,7 @@ class BrowserIPCController {
     console.log("BrowserIPCController:tabs:get called");
     return this.execute("tabs:get", () => {
       this.validateSender(event);
-      return this.browserManager.getAllTabs();
+      return this.browserCapabilities.tabs.getAllTabs();
     });
   };
 
@@ -299,4 +301,4 @@ class BrowserIPCController {
   }
 }
 
-module.exports = BrowserIPCController;
+module.exports = BrowserIPCAdapter;
