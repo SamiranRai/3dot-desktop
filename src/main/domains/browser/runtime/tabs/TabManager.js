@@ -5,8 +5,7 @@ const Tab = require("./Tab");
 const AppError = require("../../../../errors/AppError");
 const ErrorCodes = require("../../../../errors/ErrorCodes");
 
-// const DEFAULT_NEW_TAB_URL = "https://www.google.com";
-const NEW_TAB_URL = 'http://localhost:5173/start';
+const NEW_TAB_URL = "http://localhost:5173/start";
 
 /*
 @Class: TabManager
@@ -23,39 +22,39 @@ class TabManager extends EventEmitter {
     this.window = window;
     this.tabs = new Map();
     this.activeTabId = null;
-    this.lifecycleState = 'created';
+    this.lifecycleState = "created";
   }
 
   // --------- LIFECYCLE ---------
 
   initialize() {
-    if (this.lifecycleState !== 'created') {
+    if (this.lifecycleState !== "created") {
       throw new AppError({
         code: ErrorCodes.BROWSER_NOT_READY,
         message: `Cannot initialize TabManager from state: ${this.lifecycleState}`,
       });
     }
 
-    this.lifecycleState = 'initializing';
-    console.log('TAB MANAGER: initializing');
+    this.lifecycleState = "initializing";
+    console.log("TAB MANAGER: initializing");
 
     try {
-      this.lifecycleState = 'ready';
+      this.lifecycleState = "ready";
 
-      console.log('TAB MANAGER: ready');
+      console.log("TAB MANAGER: ready");
     } catch (error) {
-      this.lifecycleState = 'error';
+      this.lifecycleState = "error";
 
       throw new AppError({
         code: ErrorCodes.BROWSER_INITIALIZATION_FAILED,
-        message: 'Failed to initialize TabManager.',
+        message: "Failed to initialize TabManager.",
         cause: error,
       });
     }
   }
 
   destroy() {
-    if (this.lifecycleState === 'destroyed') {
+    if (this.lifecycleState === "destroyed") {
       return;
     }
 
@@ -69,9 +68,9 @@ class TabManager extends EventEmitter {
     this.removeAllListeners();
 
     this.window = null;
-    this.lifecycleState = 'destroyed';
+    this.lifecycleState = "destroyed";
 
-    console.log('TAB MANAGER: destroyed');
+    console.log("TAB MANAGER: destroyed");
   }
 
   // --------- COMMANDS ---------
@@ -83,9 +82,9 @@ class TabManager extends EventEmitter {
 
     const tab = new Tab({ id: tabId, window: this.window });
 
-    tab.on('tab-state-changed', (tab) => {
-      console.log('TAB MANAGER: tab state changed', { tabId, tab });
-      this.emit('tab-state-changed', { tabId, tab });
+    tab.on("tab-state-changed", (tab) => {
+      console.log("TAB MANAGER: tab state changed", { tabId, tab });
+      this.emit("tab-state-changed", { tabId, tab });
     });
 
     tab.initialize(url);
@@ -93,7 +92,7 @@ class TabManager extends EventEmitter {
     // Store Map<TabId, Tab>
     this.tabs.set(tabId, tab);
 
-    this.emit('tab-created', {
+    this.emit("tab-created", {
       tabId,
       tab: tab.getState(),
     });
@@ -110,19 +109,13 @@ class TabManager extends EventEmitter {
     this.assertReady();
 
     const tab = this.getTabById(tabId);
-    if (!tab) {
-      throw new AppError({
-        code: ErrorCodes.BROWSER_TAB_NOT_FOUND,
-        message: `Tab with ID ${tabId} not found.`,
-      });
-    }
 
     const wasActiveTab = this.activeTabId === tabId;
 
     tab.destroy();
     this.tabs.delete(tabId);
 
-    this.emit('tab-closed', tabId);
+    this.emit("tab-closed", tabId);
 
     // If the closed tab was active, Set a new active tab
     if (wasActiveTab) {
@@ -142,12 +135,6 @@ class TabManager extends EventEmitter {
     this.assertReady();
 
     const tab = this.getTabById(tabId);
-    if (!tab) {
-      throw new AppError({
-        code: ErrorCodes.BROWSER_TAB_NOT_FOUND,
-        message: `Tab with ID ${tabId} not found.`,
-      });
-    }
 
     // If the requested tab is already active, return its state
     if (this.activeTabId === tabId) {
@@ -169,7 +156,7 @@ class TabManager extends EventEmitter {
     // Update the active tab ID
     this.activeTabId = tabId;
 
-    this.emit('tab-activated', {
+    this.emit("tab-activated", {
       tabId,
       tab: tab.getState(),
     });
@@ -223,7 +210,7 @@ class TabManager extends EventEmitter {
 
   // Assert that the TabManager is ready
   assertReady() {
-    if (this.lifecycleState !== 'ready') {
+    if (this.lifecycleState !== "ready") {
       throw new AppError({
         code: ErrorCodes.BROWSER_NOT_READY,
         message: `TabManager is not ready. Current state: ${this.lifecycleState}`,
