@@ -1,42 +1,81 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 const browserAPI = {
+  // React -> Electron (IPC Invokes)
   navigate: (url) => {
     console.log("PRELOAD: navigate called:", url);
-    ipcRenderer.invoke("browser:navigate", url);
+    return ipcRenderer.invoke("browser:navigate", url);
   },
 
   goBack: () => {
     console.log("PRELOAD: goBack called");
-    ipcRenderer.invoke("browser:navigation:back");
+    return ipcRenderer.invoke("browser:navigation:back");
   },
 
   goForward: () => {
     console.log("PRELOAD: goForward called");
-    ipcRenderer.invoke("browser:navigation:forward");
+    return ipcRenderer.invoke("browser:navigation:forward");
   },
 
   reload: () => {
     console.log("PRELOAD: reload called");
-    ipcRenderer.invoke("browser:navigation:reload");
+    return ipcRenderer.invoke("browser:navigation:reload");
+  },
+
+  createTab: (url) => {
+    console.log("PRELOAD: Tab created with URL:", url);
+    return ipcRenderer.invoke("browser:tab:create", url);
+  },
+
+  closeTab: (tabId) => {
+    console.log("PRELOAD: Tab closed with ID:", tabId);
+    return ipcRenderer.invoke("browser:tab:close", tabId);
+  },
+
+  activateTab: (tabId) => {
+    console.log("PRELOAD: Tab activated with ID:", tabId);
+    return ipcRenderer.invoke("browser:tab:activate", tabId);
+  },
+
+  getTabs: () => {
+    console.log("PRELOAD: getTabs called");
+    return ipcRenderer.invoke("browser:tabs:get");
+  },
+
+  // Electron -> React (IPC Listeners)
+
+  onTabCreated: (callback) => {
+    return subscribe("browser:tab-created", callback);
+  },
+
+  onTabClosed: (callback) => {
+    return subscribe("browser:tab-closed", callback);
+  },
+
+  onTabActivated: (callback) => {
+    return subscribe("browser:tab-activated", callback);
+  },
+
+  onTabStateChanged: (callback) => {
+    return subscribe("browser:tab-state-changed", callback);
   },
 
   onBrowserStateChanged: (callback) => {
-    console.log("PRELOAD: onBrowserStateChanged called");
-
-    const listener = (_event, state) => {
-      console.log("PRELOAD: browser:state-changed event received:", state);
-      callback(state);
-    };
-
-    ipcRenderer.on("browser:state-changed", listener);
-
-    // Return a function to unsubscribe
-    return () => {
-      ipcRenderer.removeListener("browser:state-changed", listener);
-    };
+    return subscribe("browser:state-changed", callback);
   },
 };
+
+function subscribe(channel, callback) {
+  const listener = (_event, data) => {
+    callback(data);
+  };
+
+  ipcRenderer.on(channel, listener);
+
+  return () => {
+    ipcRenderer.removeListener(channel, listener);
+  };
+}
 
 try {
   contextBridge.exposeInMainWorld("browser", browserAPI);

@@ -1,0 +1,18 @@
+.browser-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.browser-action-button {
+  display: flex;
+  padding: 2px 3px;
+  justify-content: center;
+  align-items: center;
+  border-radius: 4px;
+  color: white;
+}
+
+.browser-action-button:hover {
+  background-color: rgba(47, 47, 47, 1);
+}

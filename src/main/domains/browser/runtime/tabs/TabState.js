@@ -1,8 +1,9 @@
-class BrowserState {
+class TabState {
   constructor() {
     this.url = "";
     this.title = "";
     this.isLoading = false;
+
     this.canGoBack = false;
     this.canGoForward = false;
   }
@@ -18,5 +19,4 @@ class BrowserState {
   }
 }
 
-
-module.exports = BrowserState;
+module.exports = TabState;
