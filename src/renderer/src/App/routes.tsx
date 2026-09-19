@@ -5,11 +5,15 @@ import StartPage from '@/features/start-page/startPage';
 
 export const router = createBrowserRouter([
   {
-    path: '/',
-    element: <BrowserTopBar />,
-  },
-  {
     path: '/start',
     element: <StartPage />,
   },
+  {
+    path: '/browser',
+    element: <BrowserTopBar />,
+  },
+  {
+    path: "/overlay",
+    element: <div>Overlay</div>,
+  }
 ]);
