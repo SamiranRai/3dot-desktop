@@ -1,74 +1,105 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+const isDev = process.env.NODE_ENV !== "production";
+
+/** Dev-only diagnostic logging — never runs in production builds. */
+function devLog(...args) {
+  if (isDev) {
+    console.log("[preload]", ...args);
+  }
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+
 const browserAPI = {
-  // React -> Electron (IPC Invokes)
+
+   // React -> Electron (IPC Invokes)
   navigate: (url) => {
-    console.log("PRELOAD: navigate called:", url);
+    if (!isNonEmptyString(url)) {
+      return Promise.reject(
+        new Error("navigate() requires a non-empty url string"),
+      );
+    }
+    devLog("navigate called");
     return ipcRenderer.invoke("browser:navigate", url);
   },
 
   goBack: () => {
-    console.log("PRELOAD: goBack called");
+    devLog("goBack called");
     return ipcRenderer.invoke("browser:navigation:back");
   },
 
   goForward: () => {
-    console.log("PRELOAD: goForward called");
+    devLog("goForward called");
     return ipcRenderer.invoke("browser:navigation:forward");
   },
 
   reload: () => {
-    console.log("PRELOAD: reload called");
+    devLog("reload called");
     return ipcRenderer.invoke("browser:navigation:reload");
   },
 
   createTab: (url) => {
-    console.log("PRELOAD: Tab created with URL:", url);
+    if (url !== undefined && !isNonEmptyString(url)) {
+      return Promise.reject(
+        new Error("createTab() url must be a non-empty string when provided"),
+      );
+    }
+    devLog("createTab called");
     return ipcRenderer.invoke("browser:tab:create", url);
   },
 
   closeTab: (tabId) => {
-    console.log("PRELOAD: Tab closed with ID:", tabId);
+    if (!isNonEmptyString(tabId)) {
+      return Promise.reject(
+        new Error("closeTab() requires a non-empty tabId string"),
+      );
+    }
+    devLog("closeTab called:", tabId);
     return ipcRenderer.invoke("browser:tab:close", tabId);
   },
 
   activateTab: (tabId) => {
-    console.log("PRELOAD: Tab activated with ID:", tabId);
+    if (!isNonEmptyString(tabId)) {
+      return Promise.reject(
+        new Error("activateTab() requires a non-empty tabId string"),
+      );
+    }
+    devLog("activateTab called:", tabId);
     return ipcRenderer.invoke("browser:tab:activate", tabId);
   },
 
   getTabs: () => {
-    console.log("PRELOAD: getTabs called");
+    devLog("getTabs called");
     return ipcRenderer.invoke("browser:tabs:get");
   },
 
   // Electron -> React (IPC Listeners)
-
-  onTabCreated: (callback) => {
-    return subscribe("browser:tab-created", callback);
-  },
-
-  onTabClosed: (callback) => {
-    return subscribe("browser:tab-closed", callback);
-  },
-
-  onTabActivated: (callback) => {
-    return subscribe("browser:tab-activated", callback);
-  },
-
-  onTabStateChanged: (callback) => {
-    return subscribe("browser:tab-state-changed", callback);
-  },
-
-  onBrowserStateChanged: (callback) => {
-    return subscribe("browser:state-changed", callback);
-  },
+  onTabCreated: (callback) => subscribe("browser:tab-created", callback),
+  onTabClosed: (callback) => subscribe("browser:tab-closed", callback),
+  onTabActivated: (callback) => subscribe("browser:tab-activated", callback),
+  onTabStateChanged: (callback) =>
+    subscribe("browser:tab-state-changed", callback),
+  onBrowserStateChanged: (callback) =>
+    subscribe("browser:state-changed", callback),
 };
 
+/**
+ * Subscribes to a main -> renderer event channel and returns an
+ * unsubscribe function, matching React's useEffect cleanup contract.
+ * @param {string} channel
+ * @param {(data: unknown) => void} callback
+ * @returns {() => void}
+ */
 function subscribe(channel, callback) {
-  const listener = (_event, data) => {
-    callback(data);
-  };
+  if (typeof callback !== "function") {
+    throw new TypeError(`subscribe("${channel}") requires a function callback`);
+  }
+
+  const listener = (_event, data) => callback(data);
 
   ipcRenderer.on(channel, listener);
 
@@ -80,5 +111,5 @@ function subscribe(channel, callback) {
 try {
   contextBridge.exposeInMainWorld("browser", browserAPI);
 } catch (error) {
-  console.error("PRELOAD: Failed to expose browser API", error);
+  console.error("[preload] Failed to expose browser API", error);
 }
