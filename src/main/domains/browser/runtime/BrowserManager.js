@@ -1,3 +1,4 @@
+// runtime/BrowserManager.js
 const { EventEmitter } = require("events");
 const TabManager = require("./tabs/TabManager");
 
@@ -20,8 +21,6 @@ class BrowserManager extends EventEmitter {
     this.handleTabClosed = this.handleTabClosed.bind(this);
     this.handleTabActivated = this.handleTabActivated.bind(this);
     this.handleTabStateChanged = this.handleTabStateChanged.bind(this);
-
-    console.log(this);
   }
 
   // --------- LIFECYCLE ---------
@@ -46,9 +45,6 @@ class BrowserManager extends EventEmitter {
       this.tabManager.createTab();
 
       this.lifecycleState = "ready";
-
-      // Important: give the active WebContentsView its initial bounds.
-      this.resize();
 
       // Log the successful initialization
       console.log("BROWSER MANAGER: Initialized successfully");
@@ -105,13 +101,10 @@ class BrowserManager extends EventEmitter {
     this.emit("tab-closed", tabId);
   }
 
-  handleTabActivated({ tabId, tab }) {
+  handleTabActivated({ tabId }) {
     console.log("BROWSER MANAGER: tab activated", tabId);
-    // Electron Tab
-    tab = this.tabManager.getTabById(tabId);
 
-    // console.log("BROWSER MANAGER: tab activated state after getTabById", tab);
-    this.resizeTab(tab);
+    const tab = this.tabManager.getTabById(tabId);
 
     this.emit("tab-activated", { tabId, tab: tab.getState() });
   }
@@ -157,35 +150,6 @@ class BrowserManager extends EventEmitter {
     this.assertReady();
 
     return this.tabManager.getAllTabs();
-  }
-
-  // --------- LAYOUT --------
-
-  resizeTab(tab) {
-    const [width, height] = this.window.getContentSize();
-
-    const toolbarHeight = 76;
-
-    tab.setBounds({
-      x: 0,
-      y: toolbarHeight,
-      width,
-      height: Math.max(0, height - toolbarHeight),
-    });
-  }
-
-  resize() {
-    if (this.lifecycleState !== "ready") {
-      return;
-    }
-
-    const activeTab = this.getActiveTab();
-
-    if (!activeTab) {
-      return;
-    }
-
-    this.resizeTab(activeTab);
   }
 
   // --------- BROWSER OPERATIONS ---------
