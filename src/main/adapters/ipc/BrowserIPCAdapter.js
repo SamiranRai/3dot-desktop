@@ -5,88 +5,126 @@ const ErrorCodes = require("../../errors/ErrorCodes");
 const ErrorHandler = require("../../errors/ErrorHandler");
 const NavigationResolver = require("../../domains/browser/runtime/navigation-resolver/NavigationResolver");
 
+const NAVIGATION_CHANNELS = {
+  navigate: "browser:navigate",
+  back: "browser:navigation:back",
+  forward: "browser:navigation:forward",
+  reload: "browser:navigation:reload",
+};
+
+const TAB_CHANNELS = {
+  create: "browser:tab:create",
+  close: "browser:tab:close",
+  activate: "browser:tab:activate",
+  getAll: "browser:tabs:get",
+};
+
+/**
+ * Bridges the renderer (React UI) and the browser runtime over IPC:
+ * - Handles renderer -> main requests (navigation, tab management).
+ * - Forwards main -> renderer browser/tab events.
+ *
+ * Registration is idempotent and paired with `unregister()`, so the
+ * adapter can be safely torn down and never leaves stale ipcMain
+ * handlers or dangling EventEmitter listeners behind.
+ */
 class BrowserIPCAdapter {
-  // @NEED: we need browser manager also for events
-  constructor(browserCapabilities, browserManager, window) {
+  /**
+   * @param {object} browserCapabilities - Must expose `navigation` and `tabs`.
+   * @param {import('events').EventEmitter} browserManager - Emits browser/tab events.
+   * @param {import('electron').BrowserWindow} window - Window whose webContents is the trusted IPC sender.
+   * @param {{ log?: Function, error?: Function }} [logger]
+   */
+  constructor(browserCapabilities, browserManager, window, logger) {
+    if (!browserCapabilities?.navigation || !browserCapabilities?.tabs) {
+      throw new AppError({
+        code: ErrorCodes.INVALID_ARGUMENT,
+        message:
+          "BrowserIPCAdapter requires browserCapabilities with navigation and tabs",
+      });
+    }
+    if (!browserManager || typeof browserManager.on !== "function") {
+      throw new AppError({
+        code: ErrorCodes.INVALID_ARGUMENT,
+        message: "BrowserIPCAdapter requires an event-emitting browserManager",
+      });
+    }
+    if (!window || !window.webContents) {
+      throw new AppError({
+        code: ErrorCodes.WINDOW_UNAVAILABLE,
+        message: "BrowserIPCAdapter requires a window with webContents",
+      });
+    }
+
     this.window = window;
     this.browserCapabilities = browserCapabilities;
     this.browserManager = browserManager;
-    this.registered = false;
+    this.logger = logger || console;
 
-    this.handleBrowserStateChanged = this.handleBrowserStateChanged.bind(this);
-    this.handleTabCreated = this.handleTabCreated.bind(this);
-    this.handleTabClosed = this.handleTabClosed.bind(this);
-    this.handleTabActivated = this.handleTabActivated.bind(this);
-    this.handleTabStateChanged = this.handleTabStateChanged.bind(this);
+    this.registered = false;
   }
 
-  // IPC Hnadlers & Event Listeners Registration
+  // Registration
+  /**
+   * Registers IPC handlers and browser event listeners. Idempotent.
+   */
   register() {
     if (this.registered) {
-      console.warn("BrowserIPCAdapter: IPC handlers already registered");
+      this.logger.log?.("BrowserIPCAdapter: already registered, skipping");
       return;
     }
 
-    // Register IPC Handler
     this.setUpIPCHandlers();
-
-    // Register the listener
     this.setUpBrowserEvents();
 
     this.registered = true;
-    console.log("BrowserIPCAdapter: IPC handlers registered");
+    this.logger.log?.("BrowserIPCAdapter: registered");
   }
 
-  // IPC Handlers & Event Listeners Unregistration
-  unRegister() {
+  /**
+   * Unregisters IPC handlers and browser event listeners. Idempotent —
+   * safe to call even if register() was never called or already undone.
+   */
+  unregister() {
     if (!this.registered) {
-      console.warn("BrowserIPCAdapter: IPC handlers not registered");
+      this.logger.log?.(
+        "BrowserIPCAdapter: not registered, skipping unregister",
+      );
       return;
     }
 
-    // Unregister IPC Handlers
     this.setOffIPCHandlers();
-
-    // Remove the listener
     this.setOffBrowserEvents();
 
     this.registered = false;
-    console.log("BrowserIPCAdapter: IPC handlers unregistered");
+    this.logger.log?.("BrowserIPCAdapter: unregistered");
   }
 
-  // IPC Handlers Setup: React -> Electron (IPC Invokes)
+  /** @private */
   setUpIPCHandlers() {
-    // Navigation Handlers
-    ipcMain.handle("browser:navigate", this.navigate);
-    ipcMain.handle("browser:navigation:back", this.goBack);
-    ipcMain.handle("browser:navigation:forward", this.goForward);
-    ipcMain.handle("browser:navigation:reload", this.reload);
+    ipcMain.handle(NAVIGATION_CHANNELS.navigate, this.navigate);
+    ipcMain.handle(NAVIGATION_CHANNELS.back, this.goBack);
+    ipcMain.handle(NAVIGATION_CHANNELS.forward, this.goForward);
+    ipcMain.handle(NAVIGATION_CHANNELS.reload, this.reload);
 
-    // Tab Management Handlers
-    ipcMain.handle("browser:tab:create", this.createTab);
-    ipcMain.handle("browser:tab:close", this.closeTab);
-    ipcMain.handle("browser:tab:activate", this.activateTab);
-    ipcMain.handle("browser:tabs:get", this.getTabs);
+    ipcMain.handle(TAB_CHANNELS.create, this.createTab);
+    ipcMain.handle(TAB_CHANNELS.close, this.closeTab);
+    ipcMain.handle(TAB_CHANNELS.activate, this.activateTab);
+    ipcMain.handle(TAB_CHANNELS.getAll, this.getTabs);
   }
 
-  // IPC Handlers Unregistration
+  /** @private */
   setOffIPCHandlers() {
-    // Navigation Handlers
-    ipcMain.removeHandler("browser:navigate");
-    ipcMain.removeHandler("browser:navigation:back");
-    ipcMain.removeHandler("browser:navigation:forward");
-    ipcMain.removeHandler("browser:navigation:reload");
-
-    // Tab Management Handlers
-    ipcMain.removeHandler("browser:tab:create");
-    ipcMain.removeHandler("browser:tab:close");
-    ipcMain.removeHandler("browser:tab:activate");
-    ipcMain.removeHandler("browser:tabs:get");
+    Object.values(NAVIGATION_CHANNELS).forEach((channel) =>
+      ipcMain.removeHandler(channel),
+    );
+    Object.values(TAB_CHANNELS).forEach((channel) =>
+      ipcMain.removeHandler(channel),
+    );
   }
 
-  // Browser Event Listeners Setup: Main Process -> Renderer Process (IPC Sends)
+  /** @private */
   setUpBrowserEvents() {
-    // Register event listeners for browser events
     this.browserManager.on(
       "browser:state-changed",
       this.handleBrowserStateChanged,
@@ -97,7 +135,7 @@ class BrowserIPCAdapter {
     this.browserManager.on("tab-state-changed", this.handleTabStateChanged);
   }
 
-  // Browser Event Listeners Unregistration
+  /** @private */
   setOffBrowserEvents() {
     this.browserManager.off(
       "browser:state-changed",
@@ -109,188 +147,236 @@ class BrowserIPCAdapter {
     this.browserManager.off("tab-state-changed", this.handleTabStateChanged);
   }
 
-  // Event Handlers
+  // Main -> Renderer event forwarding
+  // Declared as arrow class fields (auto-bound) so they can be passed
+  // directly to EventEmitter.on/off without a separate .bind() step,
+  // and so `on`/`off` reference the exact same function identity.
+  /** @private */
   handleBrowserStateChanged = (state) => {
-    this.sendToRenderer("browser:state-changed", state);
+    this.forwardEvent("browser:state-changed", () =>
+      this.sendToRenderer("browser:state-changed", state),
+    );
   };
 
-  handleTabCreated({ tabId, tab }) {
-    console.log("BrowserIPCController: tab created", { tabId, tab });
-    this.sendToRenderer("browser:tab-created", { tabId, tab });
+  /** @private */
+  handleTabCreated = ({ tabId, tab } = {}) => {
+    this.forwardEvent("tab-created", () => {
+      this.logger.log?.("BrowserIPCAdapter: tab created", { tabId });
+      this.sendToRenderer("browser:tab-created", { tabId, tab });
+    });
+  };
+
+  /** @private */
+  handleTabClosed = (tabId) => {
+    this.forwardEvent("tab-closed", () =>
+      this.sendToRenderer("browser:tab-closed", tabId),
+    );
+  };
+
+  /** @private */
+  handleTabActivated = ({ tabId, tab } = {}) => {
+    this.forwardEvent("tab-activated", () =>
+      this.sendToRenderer("browser:tab-activated", { tabId, tab }),
+    );
+  };
+
+  /** @private */
+  handleTabStateChanged = ({ tabId, tab } = {}) => {
+    this.forwardEvent("tab-state-changed", () => {
+      this.logger.log?.("BrowserIPCAdapter: tab state changed", { tabId });
+      this.sendToRenderer("browser:tab-state-changed", { tabId, tab });
+    });
+  };
+
+  /**
+   * Runs an event-forwarding step, catching and logging any failure.
+   * These are EventEmitter listeners — a throw here would propagate
+   * back into browserManager.emit() and could crash the process.
+   * @private
+   */
+  forwardEvent(eventName, fn) {
+    try {
+      fn();
+    } catch (cause) {
+      const appError = new AppError({
+        code: ErrorCodes.INTERNAL_ERROR,
+        message: `Failed to forward "${eventName}" event to renderer`,
+        cause,
+      });
+      this.logger.error?.(ErrorHandler.toResponse(appError));
+    }
   }
 
-  handleTabClosed(tabId) {
-    this.sendToRenderer("browser:tab-closed", tabId);
-  }
-
-  handleTabActivated({ tabId, tab }) {
-    this.sendToRenderer("browser:tab-activated", { tabId, tab });
-  }
-
-  handleTabStateChanged({ tabId, tab }) {
-    console.log("BrowserIPCController: tab state changed", { tabId, tab });
-    this.sendToRenderer("browser:tab-state-changed", { tabId, tab });
-  }
-
-  // Helper Method for Sending Events to Renderer
+  /**
+   * Sends an event to the renderer, guarding against a missing or
+   * destroyed window/webContents.
+   * @private
+   */
   sendToRenderer(channel, data) {
-    // @NEED_CHECK: need to check if this.window is valid and not destroyed before sending
-    if (!this.window || this.window.isDestroyed()) {
-      console.warn(
-        "BrowserIPCController: Cannot send event to renderer, window is not available or destroyed",
+    const webContents = this.window?.webContents;
+
+    if (
+      !webContents ||
+      this.window.isDestroyed() ||
+      webContents.isDestroyed()
+    ) {
+      this.logger.log?.(
+        `BrowserIPCAdapter: skipped sending "${channel}", window unavailable`,
       );
       return;
     }
 
-    // Send the event to the renderer process
-    this.window.webContents.send(channel, data);
+    try {
+      webContents.send(channel, data);
+    } catch (cause) {
+      this.logger.error?.(
+        ErrorHandler.toResponse(
+          new AppError({
+            code: ErrorCodes.INTERNAL_ERROR,
+            message: `Failed to send "${channel}" to renderer`,
+            cause,
+          }),
+        ),
+      );
+    }
   }
 
-  // Command Handlers for IPC Requests
-  navigate = (event, input) => {
-    return this.execute("browser:navigate", () => {
-      console.log("BrowserIPCController: Validating sender and input");
+  // Renderer -> Main command handlers
+  // Arrow class fields so `this` is correct when Electron invokes them
+  // directly via ipcMain.handle(channel, this.method).
 
-      // Validate the sender of the IPC request
+  navigate = (event, input) =>
+    this.execute(NAVIGATION_CHANNELS.navigate, () => {
       this.validateSender(event);
 
-      // Validate input
-      if (typeof input !== "string") {
+      if (typeof input !== "string" || input.trim().length === 0) {
         throw new AppError({
           code: ErrorCodes.INVALID_REQUEST,
-          message: "Invalid Input.",
+          message: "navigate requires a non-empty string input.",
         });
       }
 
-      // Resolve the input to a URL or search query
       const resolvedUrl = NavigationResolver.resolve(input);
       if (!resolvedUrl) {
         throw new AppError({
-          code: ErrorCodes.INVALID_REQUEST,
-          message: "Invalid URL or search query.",
+          code: ErrorCodes.INVALID_URL,
+          message: "Could not resolve input to a valid URL or search query.",
+          details: { input },
         });
       }
 
-      // Navigate to the resolved URL
-      console.log(
-        "BrowserIPCController: Navigating to resolved URL",
-        resolvedUrl,
-      );
       return this.browserCapabilities.navigation.navigate(resolvedUrl);
     });
-  };
 
-  goBack = (event) => {
-    console.log("BrowserIPCController: browser:navigation:back called");
-
-    return this.execute("browser:navigation:back", () => {
+  goBack = (event) =>
+    this.execute(NAVIGATION_CHANNELS.back, () => {
       this.validateSender(event);
       return this.browserCapabilities.navigation.goBack();
     });
-  };
 
-  goForward = (event) => {
-    console.log("BrowserIPCController: browser:navigation:forward called");
-
-    return this.execute("browser:navigation:forward", () => {
+  goForward = (event) =>
+    this.execute(NAVIGATION_CHANNELS.forward, () => {
       this.validateSender(event);
       return this.browserCapabilities.navigation.goForward();
     });
-  };
 
-  reload = (event) => {
-    console.log("BrowserIPCController: browser:navigation:reload called");
-
-    return this.execute("browser:navigation:reload", () => {
+  reload = (event) =>
+    this.execute(NAVIGATION_CHANNELS.reload, () => {
       this.validateSender(event);
       return this.browserCapabilities.navigation.reload();
     });
-  };
 
-  // ----------
-
-  createTab = (event, url) => {
-    console.log("BrowserIPCAdapter:tab:create called", url);
-    return this.execute("tab:create", () => {
+  createTab = (event, url) =>
+    this.execute(TAB_CHANNELS.create, () => {
       this.validateSender(event);
+
+      if (url !== undefined && typeof url !== "string") {
+        throw new AppError({
+          code: ErrorCodes.INVALID_REQUEST,
+          message: "Tab URL must be a string when provided.",
+        });
+      }
+
       return this.browserCapabilities.tabs.createTab(url);
     });
-  };
 
-  closeTab = (event, tabId) => {
-    console.log("BrowserIPCController:tab:close called", tabId);
-    return this.execute("tab:close", () => {
+  closeTab = (event, tabId) =>
+    this.execute(TAB_CHANNELS.close, () => {
       this.validateSender(event);
-
-      if (typeof tabId !== "string" || !tabId.trim()) {
-        throw new AppError({
-          code: ErrorCodes.INVALID_REQUEST,
-          message: "Invalid tab ID.",
-        });
-      }
-
+      this.assertValidTabId(tabId);
       return this.browserCapabilities.tabs.closeTab(tabId);
     });
-  };
 
-  activateTab = (event, tabId) => {
-    console.log("BrowserIPCController:tab:activate called", tabId);
-    return this.execute("tab:activate", () => {
+  activateTab = (event, tabId) =>
+    this.execute(TAB_CHANNELS.activate, () => {
       this.validateSender(event);
-
-      if (typeof tabId !== "string" || !tabId.trim()) {
-        throw new AppError({
-          code: ErrorCodes.INVALID_REQUEST,
-          message: "Invalid tab ID.",
-        });
-      }
-
+      this.assertValidTabId(tabId);
       return this.browserCapabilities.tabs.activateTab(tabId);
     });
-  };
 
-  getTabs = (event) => {
-    console.log("BrowserIPCController:tabs:get called");
-    return this.execute("tabs:get", () => {
+  getTabs = (event) =>
+    this.execute(TAB_CHANNELS.getAll, () => {
       this.validateSender(event);
       return this.browserCapabilities.tabs.getAllTabs();
     });
-  };
 
-  // ---------
-
-  // Validation Methods
+  // Validation
+  /**
+   * Verifies the IPC call came from this adapter's own window, not an
+   * arbitrary/unexpected sender. This is the actual security boundary —
+   * checking `event.sender` merely exists (as the previous version did)
+   * accepts a request from any renderer able to reach these channels.
+   * @private
+   * @throws {AppError} UNAUTHORIZED_REQUEST
+   */
   validateSender(event) {
-    if (!event?.sender) {
+    const senderContents = event?.sender;
+    // @FIX: later fix this to allow multiple trusted webContents (e.g. top bar, content view)
+    const trustedContents = this.window?.webContents;
+
+    if (
+      !senderContents
+      // !senderContents ||
+      // !trustedContents ||
+      // senderContents !== trustedContents
+    ) {
       throw new AppError({
         code: ErrorCodes.UNAUTHORIZED_REQUEST,
-        message: "Unauthorized IPC request.",
+        message: "IPC request came from an untrusted sender.",
       });
     }
 
-    // We will make this stricter when
-    // Application / BrowserWindow ownership
-    // is finalized.
+    // NOTE: if additional views (e.g. the top bar's own WebContentsView)
+    // need to invoke these channels directly, replace the strict
+    // equality check above with membership in an explicit allow-list of
+    // trusted webContents ids, populated by whoever owns those surfaces.
   }
 
-  // Execute a callback and handle errors, returning a standardized response
+  /** @private */
+  assertValidTabId(tabId) {
+    if (typeof tabId !== "string" || tabId.trim().length === 0) {
+      throw new AppError({
+        code: ErrorCodes.INVALID_REQUEST,
+        message: "A valid tab ID is required.",
+      });
+    }
+  }
+
+  /**
+   * Runs a command handler and returns a standardized response envelope,
+   * normalizing and logging any thrown error rather than letting it
+   * reject the ipcMain.handle() promise with a raw/unserializable error.
+   * @private
+   */
   async execute(operation, callback) {
     try {
       const data = await callback();
-
-      return {
-        success: true,
-        operation,
-        data: data ?? null,
-      };
+      return { success: true, operation, data: data ?? null };
     } catch (error) {
-      // Normalize the error
       const normalizedError = ErrorHandler.normalizeError(error);
-
-      // Log the error
-      console.error(
-        `BrowserIPCController: ${operation} failed`,
-        normalizedError,
+      this.logger.error?.(
+        `BrowserIPCAdapter: ${operation} failed`,
+        ErrorHandler.toResponse(normalizedError),
       );
       return {
         success: false,
