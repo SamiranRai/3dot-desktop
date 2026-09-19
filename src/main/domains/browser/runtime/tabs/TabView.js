@@ -39,8 +39,10 @@ class TabView {
     if (!this.view) {
       return;
     }
-    if (!this.view.webContents.isDestroyed()) {
-      this.view.webContents.destroy();
+
+    const webContents = this.view.webContents;
+    if (webContents && !webContents.isDestroyed()) {
+      webContents.close();
     }
 
     this.view = null;
