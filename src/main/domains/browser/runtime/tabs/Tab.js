@@ -41,9 +41,6 @@ class Tab extends EventEmitter {
     this.id = id;
     this.window = window;
 
-    // Tab View
-    // this.view = null;
-
     // Tab State
     this.tabState = new TabState();
     this.view = new TabView();
@@ -65,13 +62,8 @@ class Tab extends EventEmitter {
     this.lifecycleState = "initializing";
 
     try {
-      // Create a new WebContentsView
-      this.createView();
-
-      // Setup WebContents Events
       this.setupWebContentsEvents();
 
-      // this.view.webContents.loadURL(url);
       this.view.loadURL(url);
 
       // Tab Lifecycle State: "Ready"
@@ -87,23 +79,6 @@ class Tab extends EventEmitter {
         cause: error,
       });
     }
-  }
-
-  // Create a new WebContentsView
-  createView() {
-    return this.view.getView();
-    // this.view = new WebContentsView({
-    //   webPreferences: {
-    //     sandbox: true,
-    //     contextIsolation: true,
-    //     nodeIntegration: false,
-    //   },
-    // });
-
-    // // @testing: testing with TabView class
-    // this.view = this.tabView.getView();
-
-    // this.window.contentView.addChildView(this.view);
   }
 
   // Setup WebContents Events
@@ -163,16 +138,14 @@ class Tab extends EventEmitter {
   // Navigate to a new URL
   navigate(url) {
     this.assertReady();
-    console.log("BROWSER MANAGER: navigating to:", url);
-    // return this.view.webContents.loadURL(url);
+    console.log(`TAB [${this.id}]: navigating to`, url);
     return this.view.loadURL(url);
-    // return this.view.loadURL(url);
   }
 
   // Go back in the navigation history
   goBack() {
     this.assertReady();
-    console.log("BROWSER MANAGER: navigating back");
+    console.log(`TAB [${this.id}]: navigating back`);
     if (!this.view.getWebContents().navigationHistory.canGoBack()) {
       return false;
     }
@@ -184,7 +157,7 @@ class Tab extends EventEmitter {
   // Go forward in the navigation history
   goForward() {
     this.assertReady();
-    console.log("BROWSER MANAGER: navigating forward");
+    console.log(`TAB [${this.id}]: navigating forward`);
     if (!this.view.getWebContents().navigationHistory.canGoForward()) {
       return false;
     }
@@ -195,13 +168,14 @@ class Tab extends EventEmitter {
   // Reload Method
   reload() {
     this.assertReady();
-    console.log("BROWSER MANAGER: reloading page");
+    console.log(`TAB [${this.id}]: reloading page`);
     this.view.getWebContents().reload();
   }
 
   getView() {
     return this.view.getView();
   }
+
   // Set Bounds Method
   setBounds(bounds) {
     this.assertReady();
@@ -213,13 +187,11 @@ class Tab extends EventEmitter {
   show() {
     this.assertReady();
     this.view.show();
-    // this.view.setVisible(true);
   }
 
   hide() {
     this.assertReady();
     this.view.hide();
-    // this.view.setVisible(false);
   }
 
   // Assert Ready Method
@@ -232,7 +204,6 @@ class Tab extends EventEmitter {
     }
   }
 
-  // Add a TabView Destroy method in here.
   destroy() {
     if (this.lifecycleState === "destroyed") {
       console.warn(`TAB [${this.id}]: already destroyed`);
@@ -241,16 +212,13 @@ class Tab extends EventEmitter {
 
     try {
       if (this.view) {
-        const webContents = this.view.getWebContents();
+        const rawView = this.view.getView();
 
-        // @FIX: check isDestroyed method avilable in webContents, if not use isDestroyed property
-        if (!webContents.isDestroyed()) {
-          webContents.close();
+        if (this.window?.contentView && rawView) {
+          this.window.contentView.removeChildView(rawView);
         }
-
-        if (this.window?.contentView) {
-          this.window.contentView.removeChildView(this.view);
-        }
+        
+        this.view.destroy();
       }
     } finally {
       // Reset properties and remove event listeners
