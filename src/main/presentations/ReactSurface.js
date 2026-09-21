@@ -3,12 +3,6 @@ const AppError = require("../errors/AppError");
 const ErrorCodes = require("../errors/ErrorCodes");
 const ErrorHandler = require("../errors/ErrorHandler");
 
-/**
- * Base class for a WebContentsView-backed surface rendering a React app
- * at a given URL. Handles view creation, loading, visibility, bounds,
- * and teardown. Subclasses (BrowserTopBar, tab views, etc.) compose this
- * with window-attachment logic.
- */
 class ReactSurface {
   /**
    * @param {object} opts
@@ -56,11 +50,6 @@ class ReactSurface {
       });
     }
 
-    // load() is async; calling it un-awaited from the constructor means a
-    // failed load (bad URL, dev server not up yet, etc.) becomes an
-    // unhandled promise rejection that can crash the process. We catch it
-    // here and also keep the promise so callers can await readiness via
-    // whenLoaded().
     this.loadPromise = this.load().catch((cause) => {
       const appError = ErrorHandler.normalizeError(cause);
       this.loadError = appError;
@@ -68,9 +57,6 @@ class ReactSurface {
         `ReactSurface failed to load "${this.url}"`,
         ErrorHandler.toResponse(appError),
       );
-      // Swallow here — constructor-time load failures are reported via
-      // loadError / whenLoaded(), not thrown, since nothing is awaiting
-      // this promise directly.
     });
   }
 
@@ -98,11 +84,6 @@ class ReactSurface {
     return this.loadPromise;
   }
 
-  /**
-   * Loads the configured URL into the view.
-   * @throws {AppError} SURFACE_DESTROYED if the surface has been torn down;
-   *   SURFACE_INVALID wrapping the underlying error if loadURL fails.
-   */
   async load() {
     if (!this.view || this.destroyed) {
       throw new AppError({
@@ -127,7 +108,6 @@ class ReactSurface {
 
   /**
    * @param {{ x: number, y: number, width: number, height: number }} bounds
-   * @throws {AppError} INVALID_ARGUMENT for malformed bounds.
    */
   setBounds(bounds) {
     if (!this.view || this.destroyed) return;
@@ -186,10 +166,6 @@ class ReactSurface {
     this.setVisible(false);
   }
 
-  /**
-   * Closes the underlying webContents and releases the view. Idempotent
-   * — safe to call more than once.
-   */
   destroy() {
     if (this.destroyed) return;
 
