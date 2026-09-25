@@ -10,11 +10,12 @@ lifecycleState: "created" | "initializing" | "ready" | "error" | "destroyed"
 */
 
 class BrowserManager extends EventEmitter {
-  constructor(window) {
+  constructor({ window, surfaceManager }) {
     super();
 
     this.window = window;
-    this.tabManager = new TabManager(window);
+    this.surfaceManager = surfaceManager;
+    this.tabManager = new TabManager({ window, surfaceManager });
     this.lifecycleState = "created";
 
     this.handleTabCreated = this.handleTabCreated.bind(this);
@@ -42,7 +43,10 @@ class BrowserManager extends EventEmitter {
       this.setUpTabEvents();
 
       // Create the first tab.
-      this.tabManager.createTab();
+      this.tabManager.createTab().catch((error) => {
+        console.error("BROWSER MANAGER: failed to create initial tab", error);
+        this.emit("tab-load-error", { error });
+      });
 
       this.lifecycleState = "ready";
 
@@ -91,7 +95,6 @@ class BrowserManager extends EventEmitter {
   }
 
   handleTabCreated({ tabId, tab }) {
-    console.log("BROWSER MANAGER: tab created", tabId);
     this.emit("tab-created", { tabId, tab });
   }
 
@@ -116,10 +119,10 @@ class BrowserManager extends EventEmitter {
 
   // --------- TAB OPERATIONS ---------
 
-  createTab(url) {
+  async createTab(url) {
     this.assertReady();
 
-    return this.tabManager.createTab(url);
+    return await this.tabManager.createTab(url);
   }
 
   closeTab(tabId) {

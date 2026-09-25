@@ -9,6 +9,7 @@ const REQUIRED_METHODS = [
   "getAllTabs",
 ];
 
+
 class TabsCapabilities extends BaseCapabilities {
   constructor(browserManager) {
     super(browserManager, REQUIRED_METHODS, "TabsCapabilities");

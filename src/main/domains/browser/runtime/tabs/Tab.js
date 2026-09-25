@@ -14,6 +14,14 @@ const ErrorCodes = require("../../../../errors/ErrorCodes");
 - Error: created -> initializing -> error
 - Destroyed: ready -> destroyed
 
+Note: "ready" means the page has finished loading (navigation history,
+webContents state, etc. are valid). It does NOT gate whether the tab's
+view can be positioned, shown, or hidden — that's possible from the
+moment the Tab is constructed, same as a real browser shows a
+blank/loading tab immediately rather than waiting for the page to load
+before it's even visible. See setBounds()/show()/hide() vs.
+navigate()/goBack()/goForward()/reload() below.
+
 ---------------------------------------
 
 ############: Event Handling :############
@@ -34,12 +42,13 @@ const ErrorCodes = require("../../../../errors/ErrorCodes");
 */
 
 class Tab extends EventEmitter {
-  constructor({ id, window }) {
+  constructor({ id, window, surfaceManager }) {
     super();
 
     // Tab Properties
     this.id = id;
     this.window = window;
+    this.surfaceManager = surfaceManager;
 
     // Tab State
     this.tabState = new TabState();
@@ -50,7 +59,7 @@ class Tab extends EventEmitter {
   }
 
   // Intializing Tab, Default URL=Google
-  initialize(url) {
+  async initialize(url) {
     if (this.lifecycleState !== "created") {
       throw new AppError({
         code: ErrorCodes.BROWSER_INITIALIZATION_FAILED,
@@ -64,7 +73,7 @@ class Tab extends EventEmitter {
     try {
       this.setupWebContentsEvents();
 
-      this.view.loadURL(url);
+      await this.view.loadURL(url);
 
       // Tab Lifecycle State: "Ready"
       this.lifecycleState = "ready";
@@ -134,15 +143,15 @@ class Tab extends EventEmitter {
   }
 
   // ---Navigation Methods---
+  // These genuinely require the page to have finished loading (they touch
+  // webContents.navigationHistory), so they keep the assertReady() guard.
 
-  // Navigate to a new URL
   navigate(url) {
     this.assertReady();
     console.log(`TAB [${this.id}]: navigating to`, url);
     return this.view.loadURL(url);
   }
 
-  // Go back in the navigation history
   goBack() {
     this.assertReady();
     console.log(`TAB [${this.id}]: navigating back`);
@@ -154,7 +163,6 @@ class Tab extends EventEmitter {
     return true;
   }
 
-  // Go forward in the navigation history
   goForward() {
     this.assertReady();
     console.log(`TAB [${this.id}]: navigating forward`);
@@ -165,7 +173,6 @@ class Tab extends EventEmitter {
     return true;
   }
 
-  // Reload Method
   reload() {
     this.assertReady();
     console.log(`TAB [${this.id}]: reloading page`);
@@ -176,25 +183,30 @@ class Tab extends EventEmitter {
     return this.view.getView();
   }
 
-  // Set Bounds Method
-  setBounds(bounds) {
-    this.assertReady();
+  attachToWindow() {
+    if (!this.surfaceManager) {
+      throw new AppError({
+        code: ErrorCodes.BROWSER_WINDOW_NOT_FOUND,
+        message: "Cannot attach tab: surfaceManager reference is null.",
+      });
+    }
 
+    this.surfaceManager.attach(this.id, this.getView(), "tab");
+  }
+
+  setBounds(bounds) {
     this.view.setBounds(bounds);
   }
 
-  // Show and Hide Methods
   show() {
-    this.assertReady();
     this.view.show();
   }
 
   hide() {
-    this.assertReady();
     this.view.hide();
   }
 
-  // Assert Ready Method
+  // Assert Ready Method — for navigation only, see above.
   assertReady() {
     if (this.lifecycleState !== "ready") {
       throw new AppError({
@@ -212,12 +224,10 @@ class Tab extends EventEmitter {
 
     try {
       if (this.view) {
-        const rawView = this.view.getView();
-
-        if (this.window?.contentView && rawView) {
-          this.window.contentView.removeChildView(rawView);
+        if (this.surfaceManager) {
+          this.surfaceManager.detach(this.id);
         }
-        
+
         this.view.destroy();
       }
     } finally {

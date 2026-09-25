@@ -1,7 +1,6 @@
 const { app } = require("electron");
 
 const Application = require("./main/application/Application");
-
 const application = new Application();
 
 // Execute the createWindow function when the app is ready

@@ -7,19 +7,12 @@ const ErrorCodes = require("../../../../errors/ErrorCodes");
 
 const NEW_TAB_URL = "http://localhost:5173/start";
 
-/*
-@Class: TabManager
-@Description: Manages a collection of tabs within a browser window.
-
-tab: snapshot of a tab's state, including its ID, URL, title, and navigation history.
-{ tabId, tab: snapshot }
-*/
-
 class TabManager extends EventEmitter {
-  constructor(window) {
+  constructor({ window, surfaceManager }) {
     super();
 
     this.window = window;
+    this.surfaceManager = surfaceManager;
     this.tabs = new Map();
     this.activeTabId = null;
     this.lifecycleState = "created";
@@ -75,19 +68,26 @@ class TabManager extends EventEmitter {
 
   // --------- COMMANDS ---------
 
-  createTab(url = NEW_TAB_URL) {
+  async createTab(url = NEW_TAB_URL) {
     this.assertReady();
 
     const tabId = crypto.randomUUID();
 
-    const tab = new Tab({ id: tabId, window: this.window });
-
-    tab.on("tab-state-changed", (tab) => {
-      console.log("TAB MANAGER: tab state changed", { tabId, tab });
-      this.emit("tab-state-changed", { tabId, tab });
+    const tab = new Tab({
+      id: tabId,
+      window: this.window,
+      surfaceManager: this.surfaceManager,
     });
 
-    tab.initialize(url);
+    tab.on("tab-state-changed", (tabState) => {
+      console.log("TAB MANAGER: tab state changed", { tabId, tabState });
+      this.emit("tab-state-changed", { tabId, tab: tabState });
+    });
+
+    // Attach to the view hierarchy and become the active tab immediately —
+    // same as a real browser showing a blank/loading tab right away,
+    // instead of a blank window until the page finishes loading.
+    tab.attachToWindow();
 
     // Store Map<TabId, Tab>
     this.tabs.set(tabId, tab);
@@ -97,10 +97,13 @@ class TabManager extends EventEmitter {
       tab: tab.getState(),
     });
 
-    // A newly created tab becomes active.
     this.activateTab(tabId);
 
     console.log(`TAB MANAGER: created tab ${tabId}`);
+
+    // Page load continues in the background. Callers that need to know
+    // when the page has actually finished loading can await this.
+    await tab.initialize(url);
 
     return tab.getState();
   }

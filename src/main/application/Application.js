@@ -1,4 +1,4 @@
-const { BrowserWindow } = require("electron");
+const { BrowserWindow, BaseWindow } = require("electron");
 const path = require("path");
 
 const AppError = require("../errors/AppError");
@@ -6,10 +6,13 @@ const ErrorCodes = require("../errors/ErrorCodes");
 const ErrorHandler = require("../errors/ErrorHandler");
 const BrowserManager = require("../domains/browser/runtime/BrowserManager");
 const BrowserCapabilities = require("../domains/browser/capabilities/BrowserCapabilities");
+const PresentationManager = require("../presentations/PresentationManager");
 const BrowserIPCAdapter = require("../adapters/ipc/BrowserIPCAdapter");
-const BrowserPresentation = require("../presentations/browser/BrowserPresentation");
-
+const SurfaceManager = require("../presentations/surfaces/SurfaceManager");
 const DEFAULT_WINDOW_OPTIONS = { width: 800, height: 600 };
+const BASE_URL = "http://localhost:5173";
+
+const Z_ORDER = ["react-shell", "tab", "overlay-host"];
 
 /**
  * Top-level application composition root. Owns the native window and the
@@ -28,12 +31,11 @@ class Application {
 
     this.window = null;
     this.browserManager = null;
-    this.browserPresentation = null;
+    this.presentationManager = null;
+    this.surfaceManager = null;
     this.browserIPCAdapter = null;
 
     this.lifecycleState = "created";
-
-    this.handleWindowResize = this.handleWindowResize.bind(this);
   }
 
   /**
@@ -53,6 +55,7 @@ class Application {
 
     try {
       this.createWindow();
+      this.createSurfaceManager();
       this.createBrowserRuntime();
       this.createBrowserPresentation();
       this.createIPCAdapter();
@@ -103,30 +106,37 @@ class Application {
         nodeIntegration: false,
       },
     });
+  }
 
-    this.window.on("resize", this.handleWindowResize);
+  /** @private */
+  createSurfaceManager() {
+    this.surfaceManager = new SurfaceManager(this.window.contentView, Z_ORDER);
   }
 
   /** @private */
   createBrowserRuntime() {
-    this.browserManager = new BrowserManager(this.window);
+    this.browserManager = new BrowserManager({
+      window: this.window,
+      surfaceManager: this.surfaceManager,
+    });
     this.browserManager.initialize();
   }
 
   /**
    * Creates and shows the visual composition of the browser screen:
-   * BrowserPresentation -> BrowserTopBar + BrowserContent -> active tab view.
+   * PresentationManager -> BrowserTopBar + BrowserContent -> active tab view.
    * @private
    */
   createBrowserPresentation() {
-    this.browserPresentation = new BrowserPresentation({
+    this.presentationManager = new PresentationManager({
       window: this.window,
+      baseURL: BASE_URL,
+      preload: path.join(__dirname, "../../preload/index.js"),
       browserManager: this.browserManager,
-      logger: this.logger,
+      surfaceManager: this.surfaceManager,
     });
 
-    this.browserPresentation.initialize();
-    this.browserPresentation.show();
+    this.presentationManager.initialize();
   }
 
   /** @private */
@@ -137,7 +147,7 @@ class Application {
       browserCapabilities,
       this.browserManager,
       this.window,
-      this.logger
+      this.logger,
     );
 
     this.browserIPCAdapter.register();
@@ -158,9 +168,9 @@ class Application {
     this.browserIPCAdapter = null;
 
     this.safeStep("destroy browser presentation", () => {
-      this.browserPresentation?.destroy?.();
+      this.presentationManager?.destroy?.();
     });
-    this.browserPresentation = null;
+    this.presentationManager = null;
 
     this.safeStep("destroy browser runtime", () => {
       this.browserManager?.destroy?.();
@@ -169,11 +179,11 @@ class Application {
 
     this.safeStep("destroy window", () => {
       if (this.window && !this.window.isDestroyed()) {
-        this.window.removeListener("resize", this.handleWindowResize);
         this.window.destroy();
       }
     });
     this.window = null;
+    this.surfaceManager = null;
   }
 
   /**
@@ -196,25 +206,7 @@ class Application {
     }
   }
 
-  // Event handlers
-
-  /**
-   * Window "resize" handler. Never throws — event listeners that throw
-   * can crash the process.
-   * @private
-   */
-  handleWindowResize() {
-    try {
-      this.browserPresentation?.layout();
-    } catch (cause) {
-      this.logger.error?.(
-        ErrorHandler.toResponse(ErrorHandler.normalizeError(cause)),
-      );
-    }
-  }
-
   // Guards
-
   /** @private */
   assertLifecycleState(expected, code) {
     if (this.lifecycleState !== expected) {

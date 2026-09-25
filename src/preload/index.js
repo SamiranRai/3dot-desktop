@@ -13,17 +13,15 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-
 const browserAPI = {
-
-   // React -> Electron (IPC Invokes)
+  // React -> Electron (IPC Invokes)
   navigate: (url) => {
     if (!isNonEmptyString(url)) {
       return Promise.reject(
         new Error("navigate() requires a non-empty url string"),
       );
     }
-    devLog("navigate called");
+    devLog("navigate called", url);
     return ipcRenderer.invoke("browser:navigate", url);
   },
 
@@ -85,6 +83,7 @@ const browserAPI = {
     subscribe("browser:tab-state-changed", callback),
   onBrowserStateChanged: (callback) =>
     subscribe("browser:state-changed", callback),
+
 };
 
 /**
@@ -99,11 +98,18 @@ function subscribe(channel, callback) {
     throw new TypeError(`subscribe("${channel}") requires a function callback`);
   }
 
-  const listener = (_event, data) => callback(data);
+  console.log("PRELOAD: subscribing:", channel);
+
+  const listener = (_event, data) => {
+    console.log("PRELOAD: EVENT RECEIVED:", channel, data);
+
+    callback(data);
+  };
 
   ipcRenderer.on(channel, listener);
 
   return () => {
+    console.log("PRELOAD: unsubscribing:", channel);
     ipcRenderer.removeListener(channel, listener);
   };
 }

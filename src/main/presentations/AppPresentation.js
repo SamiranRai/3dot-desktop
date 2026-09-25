@@ -1,1 +1,0 @@
-// AppPresentation: Composite presentation component for the application

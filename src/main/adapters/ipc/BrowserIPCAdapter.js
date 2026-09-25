@@ -19,15 +19,6 @@ const TAB_CHANNELS = {
   getAll: "browser:tabs:get",
 };
 
-/**
- * Bridges the renderer (React UI) and the browser runtime over IPC:
- * - Handles renderer -> main requests (navigation, tab management).
- * - Forwards main -> renderer browser/tab events.
- *
- * Registration is idempotent and paired with `unregister()`, so the
- * adapter can be safely torn down and never leaves stale ipcMain
- * handlers or dangling EventEmitter listeners behind.
- */
 class BrowserIPCAdapter {
   /**
    * @param {object} browserCapabilities - Must expose `navigation` and `tabs`.
@@ -65,9 +56,6 @@ class BrowserIPCAdapter {
   }
 
   // Registration
-  /**
-   * Registers IPC handlers and browser event listeners. Idempotent.
-   */
   register() {
     if (this.registered) {
       this.logger.log?.("BrowserIPCAdapter: already registered, skipping");
@@ -81,10 +69,7 @@ class BrowserIPCAdapter {
     this.logger.log?.("BrowserIPCAdapter: registered");
   }
 
-  /**
-   * Unregisters IPC handlers and browser event listeners. Idempotent —
-   * safe to call even if register() was never called or already undone.
-   */
+  // Unregisters IPC handlers and browser event listeners. Idempotent —
   unregister() {
     if (!this.registered) {
       this.logger.log?.(
@@ -148,9 +133,6 @@ class BrowserIPCAdapter {
   }
 
   // Main -> Renderer event forwarding
-  // Declared as arrow class fields (auto-bound) so they can be passed
-  // directly to EventEmitter.on/off without a separate .bind() step,
-  // and so `on`/`off` reference the exact same function identity.
   /** @private */
   handleBrowserStateChanged = (state) => {
     this.forwardEvent("browser:state-changed", () =>
@@ -188,14 +170,12 @@ class BrowserIPCAdapter {
     });
   };
 
-  /**
-   * Runs an event-forwarding step, catching and logging any failure.
-   * These are EventEmitter listeners — a throw here would propagate
-   * back into browserManager.emit() and could crash the process.
-   * @private
-   */
+  // Runs an event-forwarding step, catching and logging any failure.
   forwardEvent(eventName, fn) {
     try {
+      console.log(
+        `BrowserIPCAdapter: forwarding "${eventName}" event to renderer`,
+      ); // temporary
       fn();
     } catch (cause) {
       const appError = new AppError({
@@ -207,11 +187,7 @@ class BrowserIPCAdapter {
     }
   }
 
-  /**
-   * Sends an event to the renderer, guarding against a missing or
-   * destroyed window/webContents.
-   * @private
-   */
+  // Sends an event to the renderer
   sendToRenderer(channel, data) {
     const webContents = this.window?.webContents;
 
@@ -226,25 +202,25 @@ class BrowserIPCAdapter {
       return;
     }
 
-    try {
-      webContents.send(channel, data);
-    } catch (cause) {
-      this.logger.error?.(
-        ErrorHandler.toResponse(
-          new AppError({
-            code: ErrorCodes.INTERNAL_ERROR,
-            message: `Failed to send "${channel}" to renderer`,
-            cause,
-          }),
-        ),
-      );
-    }
+    console.log("========== IPC DEBUG ==========");
+    console.log("channel:", channel);
+    console.log("webContents.id:", webContents.id);
+    console.log("webContents.url:", webContents.getURL());
+    console.log("===============================");
+
+    // TEST EVENT
+    webContents.fromId(3).send("debug:hello", {
+      message: "HELLO FROM MAIN",
+      timestamp: Date.now(),
+    });
+
+    // Your normal event
+    console.log(`BrowserIPCAdapter: sending "${channel}" to renderer`, data);
+
+    webContents.send(channel, data);
   }
 
   // Renderer -> Main command handlers
-  // Arrow class fields so `this` is correct when Electron invokes them
-  // directly via ipcMain.handle(channel, this.method).
-
   navigate = (event, input) =>
     this.execute(NAVIGATION_CHANNELS.navigate, () => {
       this.validateSender(event);
@@ -333,6 +309,13 @@ class BrowserIPCAdapter {
     const senderContents = event?.sender;
     // @FIX: later fix this to allow multiple trusted webContents (e.g. top bar, content view)
     const trustedContents = this.window?.webContents;
+
+    console.log(
+      "sender:",
+      event.sender.id,
+      "window:",
+      this.window.webContents.id,
+    );
 
     if (
       !senderContents
