@@ -23,13 +23,10 @@
      Font Sizes
      ============================================================ */
 
-  /* --font-size-xs: 11px;
-  --font-size-sm: 12px; */
-  --font-size-reg: 13px;
-  /* --font-size-lg: 16px;
-  --font-size-xl: 20px;
-  --font-size-2xl: 24px;
-  --font-size-3xl: 32px; */
+  --font-size-type1: 13px;
+  --font-size-type2: 15px;
+  --font-size-type3: 16px;
+
 
 
   /* ============================================================
@@ -46,17 +43,15 @@
      Line Heights
      ============================================================ */
 
-  /* --line-height-none: 1;
-  --line-height-tight: 1.2;
-  --line-height-normal: 1.4;
-  --line-height-relaxed: 1.6; */
+  --line-height-none: 1;
+  --line-height-relaxed: 138%;
 
 
   /* ============================================================
      Letter Spacing
      ============================================================ */
 
-  --letter-spacing-tight: -0.5%;
+  --letter-spacing-tight: -1.2%;
   --letter-spacing-normal: 0;
 
 }

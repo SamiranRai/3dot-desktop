@@ -29,6 +29,8 @@ class OverlayHostSurface {
       },
     });
 
+    this.view.setBackgroundColor("#00000000"); // fully transparent native canvas
+    this.view.setBorderRadius(24)
     this.view.webContents.loadURL(this.url);
   }
 

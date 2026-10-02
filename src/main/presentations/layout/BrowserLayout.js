@@ -2,8 +2,8 @@ const BrowserLayout = {
   calculate({ width, height }) {
     const topBarHeight = 76;
 
-    const overlayWidth = 220;
-    const overlayHeight = 48;
+    const overlayWidth = 187;
+    const overlayHeight = 40;
     const overlayMarginTop = 12;
 
     return {

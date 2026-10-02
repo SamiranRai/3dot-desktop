@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 
-import { useBrowser } from '@/features/browser/state/BrowserContext';
-import { NewTabIcon, SearchIcon } from '@/shared/icons';
+import { useBrowser } from '@/features/browser/state/BrowserProvider';
+import { NewTabIcon, SearchIcon } from '@/shared/components/icons';
 import IconButton from '@/shared/components/IconButton';
-import { MuteIcon, ReloadIcon } from '@/shared/icons';
+import { MuteIcon, ReloadIcon } from '@/shared/components/icons';
 
 import './SearchBar.css';
 

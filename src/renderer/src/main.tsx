@@ -1,7 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { RouterProvider } from 'react-router-dom';
-import { router } from './App/routes';
+import App from "./app/App";
 
 const rootEL = document.getElementById("root");
 if (!rootEL) {
@@ -11,6 +10,6 @@ if (!rootEL) {
 const container = createRoot(rootEL);
 container.render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <App />
   </React.StrictMode>
 );

@@ -1,24 +1,6 @@
-export interface IPCSuccess<T> {
-  success: true;
-  operation: string;
-  data: T;
-}
-
-export interface IPCError {
-  code: string;
-  message: string;
-  details: unknown;
-}
-
-export interface IPCFailure {
-  success: false;
-  operation: string;
-  error: IPCError;
-}
-
-export type IPCResult<T> = IPCSuccess<T> | IPCFailure;
-
-// ---------- Tab ----------
+// Everything browser-specific
+import type { IPCResult, Unsubscribe } from "@/api/ipc.types";
+export type { IPCResult, Unsubscribe };
 
 export type TabLifecycleState =
   | "created"
@@ -37,8 +19,6 @@ export interface TabDTO {
   lifecycleState: TabLifecycleState;
 }
 
-// ---------- Events ----------
-
 export interface TabClosedEvent {
   tabId: string;
 }
@@ -48,32 +28,21 @@ export interface TabEvent {
   tab: TabDTO;
 }
 
-// ---------- Browser API ----------
-
 export interface BrowserAPI {
-  // Navigation
+  // Renderer -> Electron (IPC Invokes)
   navigate: (url: string) => Promise<IPCResult<null>>;
   goBack: () => Promise<IPCResult<boolean>>;
   goForward: () => Promise<IPCResult<boolean>>;
   reload: () => Promise<IPCResult<null>>;
 
-  // Tabs
   createTab: (url: string) => Promise<IPCResult<TabDTO>>;
   closeTab: (tabId: string) => Promise<IPCResult<null>>;
   activateTab: (tabId: string) => Promise<IPCResult<TabDTO>>;
   getTabs: () => Promise<IPCResult<TabDTO[]>>;
 
-  // Events
-  onTabCreated: (callback: (data: TabEvent) => void) => () => void;
-  onTabClosed: (callback: (data: TabClosedEvent) => void) => () => void;
-  onTabActivated: (callback: (data: TabEvent) => void) => () => void;
-  onTabStateChanged: (callback: (data: TabEvent) => void) => () => void;
-}
-
-// ---------- Window ----------
-
-declare global {
-  interface Window {
-    browser: BrowserAPI;
-  }
+  // Electron -> Renderer (IPC Listeners)
+  onTabCreated: (callback: (data: TabEvent) => void) => Unsubscribe;
+  onTabClosed: (callback: (data: TabClosedEvent) => void) => Unsubscribe;
+  onTabActivated: (callback: (data: TabEvent) => void) => Unsubscribe;
+  onTabStateChanged: (callback: (data: TabEvent) => void) => Unsubscribe;
 }
