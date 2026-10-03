@@ -1,71 +1,50 @@
-// runtime/BrowserManager.js
-
 const TabManager = require("./tabs/TabManager");
 const AppError = require("../../../errors/AppError");
 const ErrorCodes = require("../../../errors/ErrorCodes");
 
-// Constants
-const BROWSER_EVENTS = Object.freeze({
-  INITIAL_TAB_LOAD_FAILED: "browser-initial-tab-load-failed",
+const EVENTS = Object.freeze({
+  TAB_CREATED: "browser:tab-created",
+  TAB_CLOSED: "browser:tab-closed",
+  TAB_ACTIVATED: "browser:tab-activated",
+  TAB_STATE_CHANGED: "browser:tab-state-changed",
+  TAB_LOAD_ERROR: "browser:tab-load-error",
 });
 
-
 class BrowserManager {
-  constructor({ window, surfaceManager, eventBus, logger = console }) {
-    this._validateConstructorParams({
-      window,
-      surfaceManager,
-      eventBus,
-    });
+  constructor({ surfaceManager, eventBus, logger = console, newTabURL } = {}) {
+    if (!surfaceManager) throw new TypeError("BrowserManager requires surfaceManager.");
+    if (!eventBus || typeof eventBus.publish !== "function") {
+      throw new TypeError("BrowserManager requires eventBus.publish().");
+    }
 
-    // BrowserManager dependencies.
-    this.window = window;
     this.surfaceManager = surfaceManager;
     this.eventBus = eventBus;
     this.logger = logger;
-
-    // TabManager owns all tab-specific state and behavior.
-    this.tabManager = new TabManager({
-      window,
-      surfaceManager,
-      eventBus,
-      logger,
-    });
-
+    this.tabManager = new TabManager({ surfaceManager, logger, newTabURL });
     this.lifecycleState = "created";
+
+    this.handlers = {
+      created: ({ tabId, tab }) => this._publish(EVENTS.TAB_CREATED, { tabId, tab: tab.getState() }),
+      closed: (payload) => this._publish(EVENTS.TAB_CLOSED, payload),
+      activated: ({ tabId, tab }) => this._publish(EVENTS.TAB_ACTIVATED, { tabId, tab: tab.getState() }),
+      stateChanged: ({ tabId, tab }) => this._publish(EVENTS.TAB_STATE_CHANGED, { tabId, tab: tab.getState() }),
+      loadError: ({ tabId, error }) => this._publish(EVENTS.TAB_LOAD_ERROR, {
+        tabId,
+        error: this._serializeError(error),
+      }),
+    };
   }
 
-  // =========================================================
-  // LIFECYCLE
-  // =========================================================
-
   initialize() {
-    this._assertCreated();
-
-    this.lifecycleState = "initializing";
+    this._assertState("created");
 
     try {
-      /*
-       * TabManager must be initialized before BrowserManager
-       * starts accepting browser commands.
-       */
       this.tabManager.initialize();
-
-      /*
-       * BrowserManager itself is now structurally ready.
-       *
-       * The initial tab is created asynchronously afterward.
-       * A failure to load the initial tab does not mean the
-       * entire browser manager failed to initialize.
-       */
+      this._subscribeToTabManager();
       this.lifecycleState = "ready";
-
-      this._createInitialTab();
-
       this._log("initialized successfully");
     } catch (error) {
       this.lifecycleState = "error";
-
       throw new AppError({
         code: ErrorCodes.BROWSER_INITIALIZATION_FAILED,
         message: "Failed to initialize BrowserManager.",
@@ -74,243 +53,139 @@ class BrowserManager {
     }
   }
 
-  destroy() {
-    if (this.lifecycleState === "destroyed") {
-      return;
-    }
-
-    /*
-     * Mark the manager as destroyed before destroying dependencies.
-     *
-     * This prevents any later operation from treating this
-     * BrowserManager as usable.
-     */
-    this.lifecycleState = "destroyed";
-
-    try {
-      this.tabManager?.destroy();
-    } catch (error) {
-      this._logError("Failed to destroy TabManager", error);
-    }
-
-    // Release references to external resources.
-    this.window = null;
-    this.surfaceManager = null;
-    this.eventBus = null;
-    this.tabManager = null;
-
-    this._log("destroyed");
+  createInitialTab() {
+    this._assertReady();
+    return this.createTab();
   }
-
-  // =========================================================
-  // TAB OPERATIONS
-  // =========================================================
 
   async createTab(url) {
     this._assertReady();
-
-    return this.tabManager.createTab(url);
+    const tab = await this.tabManager.createTab(url);
+    return tab.getState();
   }
 
-  closeTab(tabId) {
+  async closeTab(tabId) {
     this._assertReady();
-
     return this.tabManager.closeTab(tabId);
   }
 
   activateTab(tabId) {
     this._assertReady();
-
-    return this.tabManager.activateTab(tabId);
+    return this.tabManager.activateTab(tabId).getState();
   }
-
-  // =========================================================
-  // TAB QUERIES
-  // =========================================================
 
   getTabById(tabId) {
     this._assertReady();
-
-    return this.tabManager.getTabById(tabId);
+    return this.tabManager.getTabById(tabId)?.getState() || null;
   }
 
   getActiveTab() {
     this._assertReady();
-
-    return this.tabManager.getActiveTab();
+    return this.tabManager.getActiveTab()?.getState() || null;
   }
 
   getAllTabs() {
     this._assertReady();
-
-    return this.tabManager.getAllTabs();
+    return this.tabManager.getAllTabs().map((tab) => tab.getState());
   }
-
-  // =========================================================
-  // BROWSER OPERATIONS
-  // =========================================================
 
   navigate(url) {
     this._assertReady();
-
-    const activeTab = this._requireActiveTab();
-
-    this._log(`navigating to: ${url}`);
-
-    return activeTab.navigate(url);
+    return this._requireActiveTab().navigate(url);
   }
 
   goBack() {
     this._assertReady();
-
-    const activeTab = this._requireActiveTab();
-
-    this._log("navigating back");
-
-    return activeTab.goBack();
+    return this._requireActiveTab().goBack();
   }
 
   goForward() {
     this._assertReady();
-
-    const activeTab = this._requireActiveTab();
-
-    this._log("navigating forward");
-
-    return activeTab.goForward();
+    return this._requireActiveTab().goForward();
   }
 
   reload() {
     this._assertReady();
-
-    const activeTab = this._requireActiveTab();
-
-    this._log("reloading page");
-
-    return activeTab.reload();
+    return this._requireActiveTab().reload();
   }
 
-  // =========================================================
-  // INTERNAL
-  // =========================================================
+  setActiveTabBounds(bounds) {
+    this._assertReady();
+    return this.tabManager.setActiveTabBounds(bounds);
+  }
 
-  _createInitialTab() {
-    /*
-     * Initial tab creation is intentionally not awaited here.
-     *
-     * BrowserManager itself can become ready while the first page
-     * is still loading. TabManager owns the tab lifecycle.
-     *
-     * If the initial tab fails, the browser remains alive and the
-     * failure is reported separately.
-     */
-    this.tabManager.createTab().catch((error) => {
-      this._logError("Failed to create initial tab", error);
+  destroy() {
+    if (this.lifecycleState === "destroyed") return;
+    this.lifecycleState = "destroying";
 
-      this._publishEvent(BROWSER_EVENTS.INITIAL_TAB_LOAD_FAILED, {
-        error,
-      });
-    });
+    this._unsubscribeFromTabManager();
+
+    try {
+      this.tabManager.destroy();
+    } catch (error) {
+      this._logError("Failed to destroy TabManager", error);
+    }
+
+    this.lifecycleState = "destroyed";
+    this.tabManager = null;
+    this.surfaceManager = null;
+    this.eventBus = null;
+    this._log("destroyed");
   }
 
   _requireActiveTab() {
-    const activeTab = this.tabManager.getActiveTab();
-
-    if (!activeTab) {
+    const tab = this.tabManager.getActiveTab();
+    if (!tab) {
       throw new AppError({
         code: ErrorCodes.BROWSER_NO_ACTIVE_TAB,
         message: "No active tab exists.",
       });
     }
-
-    return activeTab;
+    return tab;
   }
 
-  // =========================================================
-  // GUARDS
-  // =========================================================
+  _subscribeToTabManager() {
+    this.tabManager.on("tab-created", this.handlers.created);
+    this.tabManager.on("tab-closed", this.handlers.closed);
+    this.tabManager.on("tab-activated", this.handlers.activated);
+    this.tabManager.on("tab-state-changed", this.handlers.stateChanged);
+    this.tabManager.on("tab-load-error", this.handlers.loadError);
+  }
 
-  _assertCreated() {
-    if (this.lifecycleState !== "created") {
+  _unsubscribeFromTabManager() {
+    if (!this.tabManager) return;
+    this.tabManager.removeListener("tab-created", this.handlers.created);
+    this.tabManager.removeListener("tab-closed", this.handlers.closed);
+    this.tabManager.removeListener("tab-activated", this.handlers.activated);
+    this.tabManager.removeListener("tab-state-changed", this.handlers.stateChanged);
+    this.tabManager.removeListener("tab-load-error", this.handlers.loadError);
+  }
+
+  _publish(type, payload) {
+    this.eventBus?.publish(type, payload);
+  }
+
+  _serializeError(error) {
+    return {
+      code: error?.code || ErrorCodes.BROWSER_OPERATION_FAILED,
+      message: error?.message || "Unknown browser error.",
+      details: error?.details,
+    };
+  }
+
+  _assertState(expected) {
+    if (this.lifecycleState !== expected) {
       throw new AppError({
         code: ErrorCodes.BROWSER_NOT_READY,
-        message:
-          `Cannot initialize BrowserManager from state: ` +
-          `${this.lifecycleState}`,
+        message: `Cannot use BrowserManager from state "${this.lifecycleState}".`,
+        details: { expected, actual: this.lifecycleState },
       });
     }
   }
 
   _assertReady() {
-    if (this.lifecycleState !== "ready") {
-      throw new AppError({
-        code: ErrorCodes.BROWSER_NOT_READY,
-        message:
-          `BrowserManager is not ready. Current lifecycle state: ` +
-          `${this.lifecycleState}`,
-      });
-    }
+    this._assertState("ready");
   }
-
-  // =========================================================
-  // EVENT BUS
-  // =========================================================
-
-  _publishEvent(type, payload = null) {
-    /*
-     * Event delivery should not make an already-completed browser
-     * operation fail. The state transition has already happened;
-     * event delivery is best-effort.
-     */
-    if (!this.eventBus) {
-      return false;
-    }
-
-    try {
-      this.eventBus.publish({
-        type,
-        payload,
-      });
-
-      return true;
-    } catch (error) {
-      this._logError(`Failed to publish "${type}" event`, error);
-
-      return false;
-    }
-  }
-
-  // =========================================================
-  // VALIDATION
-  // =========================================================
-
-  _validateConstructorParams({ window, surfaceManager, eventBus }) {
-    if (!window) {
-      throw new TypeError("BrowserManager: window is required.");
-    }
-
-    if (
-      typeof surfaceManager?.attach !== "function" ||
-      typeof surfaceManager?.detach !== "function"
-    ) {
-      throw new TypeError(
-        "BrowserManager: surfaceManager must provide attach() and detach().",
-      );
-    }
-
-    if (
-      typeof eventBus?.publish !== "function" ||
-      typeof eventBus?.subscribe !== "function"
-    ) {
-      throw new TypeError(
-        "BrowserManager: eventBus must provide publish() and subscribe().",
-      );
-    }
-  }
-
-  // =========================================================
-  // LOGGING
-  // =========================================================
 
   _log(message) {
     this.logger.log?.(`BROWSER MANAGER: ${message}`);
@@ -321,4 +196,5 @@ class BrowserManager {
   }
 }
 
+BrowserManager.EVENTS = EVENTS;
 module.exports = BrowserManager;

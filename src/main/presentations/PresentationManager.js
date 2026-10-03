@@ -1,183 +1,349 @@
+// src/main/presentations/PresentationManager.js
+
 const LayoutEngine = require("./layout/LayoutEngine");
 const BrowserLayout = require("./layout/BrowserLayout");
+
 const Surface = require("./surfaces/Surface");
 const SurfaceRegistry = require("./surfaces/SurfaceRegistry");
-const ReactShellSurface = require("./surfaces/ReactShellSurface");
-const OverlayHostSurface = require("./surfaces/OverlayHostSurface");
+const WebContentsSurface = require("./surfaces/WebContentsSurface");
 const TabSurfaceAdapter = require("./surfaces/TabSurfaceAdapter");
+
 const AppError = require("../errors/AppError");
 const ErrorCodes = require("../errors/ErrorCodes");
+const BrowserManager = require("../domains/browser/runtime/BrowserManager");
 
 const RESIZE_DEBOUNCE_MS = 16;
 
 class PresentationManager {
-  constructor({ window, baseURL, preload, browserManager, surfaceManager }) {
+  constructor({
+    window,
+    baseURL,
+    preload,
+    browserManager,
+    surfaceManager,
+    eventBus,
+    logger = console,
+  }) {
+    if (!window) {
+      throw new TypeError("PresentationManager requires window.");
+    }
+
+    if (!baseURL) {
+      throw new TypeError("PresentationManager requires baseURL.");
+    }
+
+    if (!preload) {
+      throw new TypeError("PresentationManager requires preload.");
+    }
+
+    if (!browserManager) {
+      throw new TypeError("PresentationManager requires browserManager.");
+    }
+
+    if (!surfaceManager) {
+      throw new TypeError("PresentationManager requires surfaceManager.");
+    }
+
+    if (!eventBus) {
+      throw new TypeError("PresentationManager requires eventBus.");
+    }
+
     this.window = window;
     this.baseURL = baseURL;
     this.preload = preload;
+
     this.browserManager = browserManager;
     this.surfaceManager = surfaceManager;
+    this.eventBus = eventBus;
+    this.logger = logger;
+
     this.layoutEngine = new LayoutEngine();
     this.surfaceRegistry = new SurfaceRegistry();
 
+    this.layout = BrowserLayout;
+
+    this.width = 0;
+    this.height = 0;
+
+    this.resizeTimer = null;
+    this.unsubscribers = [];
+
+    this.lifecycleState = "created";
+
     this.handleResize = this.handleResize.bind(this);
-    this._resizeTimer = null;
-
-    this.currentLayout = null;
-    this.initialized = false;
-    this.destroyed = false;
   }
 
+  // =========================================================
+  // LIFECYCLE
+  // =========================================================
+
+  /**
+   * Creates and attaches all native surfaces.
+   *
+   * IMPORTANT:
+   * Renderer URLs are NOT loaded here.
+   *
+   * This allows Application to register IPC before any renderer
+   * can execute JavaScript and call the preload API.
+   */
   initialize() {
-    if (this.initialized) return;
+    if (this.lifecycleState === "ready") {
+      return;
+    }
 
-    this.createSurfaces();
-    this.attachWindowListeners();
-    this.mountSurfaces();
+    if (this.lifecycleState !== "created") {
+      throw new AppError({
+        code: ErrorCodes.SURFACE_INVALID,
+        message:
+          `Cannot initialize PresentationManager from state ` +
+          `"${this.lifecycleState}".`,
+      });
+    }
 
-    const [width, height] = this.window.getContentSize();
-    this.layoutEngine.setWindowSize(width, height);
+    try {
+      this._createSurfaces();
+      this._mountSurfaces();
+      this._subscribeToBrowserEvents();
+      this._attachWindowListeners();
 
-    this.currentLayout = BrowserLayout;
-    this.recalculate();
+      const [width, height] = this.window.getContentSize();
 
-    this.initialized = true;
+      this.width = width;
+      this.height = height;
+
+      this.lifecycleState = "ready";
+
+      this._recalculate();
+    } catch (cause) {
+      this.destroy();
+
+      throw new AppError({
+        code: ErrorCodes.SURFACE_ATTACH_FAILED,
+        message: "Failed to initialize PresentationManager.",
+        cause,
+      });
+    }
   }
 
-  createSurfaces() {
-    const reactShell = new Surface({
-      id: "react-shell",
-      renderer: new ReactShellSurface({
-        id: "react-shell",
-        window: this.window,
-        url: `${this.baseURL}/browser`, // Later add full App
-        preload: this.preload,
-      }),
-    });
+  /**
+   * Starts renderer execution.
+   *
+   * Application must call this AFTER IPC has been registered.
+   */
+  async loadSurfaces() {
+    this._assertReady();
 
-    const tab = new Surface({
-      id: "tab",
-      renderer: new TabSurfaceAdapter({
-        browserManager: this.browserManager,
-      }),
-    });
+    const surfaces = this.surfaceRegistry.getAll();
 
-    const overlayHost = new Surface({
-      id: "overlay-host",
-      renderer: new OverlayHostSurface({
-        id: "overlay-host",
-        window: this.window,
-        url: `${this.baseURL}/overlay`, // Later add a method to redner dynamic content popup
-        preload: this.preload,
-      }),
-    });
+    try {
+      for (const surface of surfaces) {
+        const renderer = surface.renderer;
 
-    // Register surfaces: Map <SurfaceId, Surface>
-    // Map <"react-shell", Surface>,
-    // <"tab", Surface>,
-    // <"overlay-host", Surface>
-    this.surfaceRegistry.register(reactShell);
-    this.surfaceRegistry.register(tab);
-    this.surfaceRegistry.register(overlayHost);
-  }
-
-  // Mount all registered surfaces concurrently And attach them to the surface manager.
-  mountSurfaces() {
-    this.surfaceRegistry.getAll().forEach((surface) => {
-      try {
-        surface.mount();
-        const view = surface.getView();
-        if (view) {
-          // Attach the surface's view to the surface manager for rendering.
-          this.surfaceManager.attach(surface.id, view);
+        if (typeof renderer.load !== "function") {
+          continue;
         }
+
+        await renderer.load();
+      }
+    } catch (cause) {
+      throw new AppError({
+        code: ErrorCodes.SURFACE_ATTACH_FAILED,
+        message: "Failed to load presentation surfaces.",
+        cause,
+      });
+    }
+  }
+
+  destroy() {
+    if (this.lifecycleState === "destroyed") {
+      return;
+    }
+
+    this.lifecycleState = "destroyed";
+
+    if (this.resizeTimer) {
+      clearTimeout(this.resizeTimer);
+      this.resizeTimer = null;
+    }
+
+    this.window?.removeListener("resize", this.handleResize);
+
+    for (const unsubscribe of this.unsubscribers.splice(0)) {
+      try {
+        unsubscribe();
       } catch (error) {
-        console.error(
-          `[PresentationManager] Failed to mount surface "${surface.id}"`,
+        this.logger.error?.("PRESENTATION: failed to unsubscribe event", error);
+      }
+    }
+
+    for (const surface of this.surfaceRegistry.getAll()) {
+      if (!this.surfaceManager.has(surface.id)) {
+        continue;
+      }
+
+      try {
+        this.surfaceManager.detach(surface.id);
+      } catch (error) {
+        this.logger.error?.(
+          `PRESENTATION: failed to detach "${surface.id}"`,
           error,
         );
       }
-    });
+    }
+
+    this.surfaceRegistry.destroyAll(this.logger);
   }
 
-  setWindowSize(width, height) {
-    this.layoutEngine.setWindowSize(width, height);
-    this.recalculate();
-  }
+  // =========================================================
+  // PRESENTATION
+  // =========================================================
 
-  // Set the current layout mode and recalculate the layout.
   setMode(mode) {
-    switch (mode) {
-      case "browser":
-        this.currentLayout = BrowserLayout;
-        break;
-
-      default:
-        throw new AppError({
-          code: ErrorCodes.PRESENTATION_MANAGER_INVALID_MODE,
-          message: `Invalid mode: ${mode}`,
-        });
+    if (mode !== "browser") {
+      throw new AppError({
+        code: ErrorCodes.PRESENTATION_INVALID_MODE,
+        message: `Unsupported presentation mode "${mode}".`,
+      });
     }
 
-    this.recalculate();
+    this.layout = BrowserLayout;
+    this._recalculate();
   }
 
-  recalculate() {
-    if (!this.currentLayout) return;
+  // =========================================================
+  // SURFACES
+  // =========================================================
 
-    const layout = this.layoutEngine.calculate(this.currentLayout);
-    this.applyLayout(layout);
+  _createSurfaces() {
+    this.surfaceRegistry.register(
+      new Surface({
+        id: "react-shell",
+
+        renderer: new WebContentsSurface({
+          id: "react-shell",
+          url: `${this.baseURL}/browser`,
+          preload: this.preload,
+          logger: this.logger,
+        }),
+      }),
+    );
+
+    this.surfaceRegistry.register(
+      new Surface({
+        id: "tab",
+
+        renderer: new TabSurfaceAdapter({
+          browserManager: this.browserManager,
+        }),
+      }),
+    );
+
+    this.surfaceRegistry.register(
+      new Surface({
+        id: "overlay-host",
+
+        renderer: new WebContentsSurface({
+          id: "overlay-host",
+          url: `${this.baseURL}/overlay`,
+          preload: this.preload,
+          transparent: true,
+          borderRadius: 24,
+          logger: this.logger,
+        }),
+      }),
+    );
   }
 
-  applyLayout(layout) {
-    const shell = this.surfaceRegistry.get("react-shell");
-    if (shell) {
-      shell.setBounds(layout.shell);
-    }
+  _mountSurfaces() {
+    for (const surface of this.surfaceRegistry.getAll()) {
+      surface.mount();
 
-    const tab = this.surfaceRegistry.get("tab");
-    if (tab) {
-      tab.setBounds(layout.tab);
-    }
+      const view = surface.getView();
 
-    const overlayHost = this.surfaceRegistry.get("overlay-host");
-    if (overlayHost) {
-      overlayHost.setBounds(layout.overlayHost);
+      if (!view) {
+        continue;
+      }
+
+      this.surfaceManager.attach(surface.id, view, surface.id);
     }
   }
 
-  attachWindowListeners() {
+  // =========================================================
+  // BROWSER EVENTS
+  // =========================================================
+
+  _subscribeToBrowserEvents() {
+    const events = [
+      BrowserManager.EVENTS.TAB_CREATED,
+      BrowserManager.EVENTS.TAB_ACTIVATED,
+      BrowserManager.EVENTS.TAB_CLOSED,
+    ];
+
+    for (const eventType of events) {
+      const unsubscribe = this.eventBus.subscribe(eventType, () =>
+        this._recalculate(),
+      );
+
+      this.unsubscribers.push(unsubscribe);
+    }
+  }
+
+  // =========================================================
+  // LAYOUT
+  // =========================================================
+
+  _attachWindowListeners() {
     this.window.on("resize", this.handleResize);
   }
 
   handleResize() {
-    if (this._resizeTimer) {
-      clearTimeout(this._resizeTimer);
+    if (this.resizeTimer) {
+      clearTimeout(this.resizeTimer);
     }
 
-    this._resizeTimer = setTimeout(() => {
-      this._resizeTimer = null;
+    this.resizeTimer = setTimeout(() => {
+      this.resizeTimer = null;
+
+      if (this.lifecycleState !== "ready" || this.window.isDestroyed()) {
+        return;
+      }
+
       const [width, height] = this.window.getContentSize();
-      this.setWindowSize(width, height);
+
+      this.width = width;
+      this.height = height;
+
+      this._recalculate();
     }, RESIZE_DEBOUNCE_MS);
   }
 
-  destroy() {
-    if (this.destroyed) return;
-    this.destroyed = true;
-
-    if (this._resizeTimer) {
-      clearTimeout(this._resizeTimer);
-      this._resizeTimer = null;
+  _recalculate() {
+    if (this.lifecycleState !== "ready") {
+      return;
     }
 
-    this.window.removeListener("resize", this.handleResize);
+    const layout = this.layoutEngine.calculate(
+      this.layout,
+      this.width,
+      this.height,
+    );
 
-    this.surfaceRegistry.getAll().forEach((surface) => {
-      this.surfaceManager.detach(surface.id);
-    });
+    this.surfaceRegistry.get("react-shell")?.setBounds(layout.shell);
 
-    this.surfaceRegistry.destroyAll();
+    this.surfaceRegistry.get("tab")?.setBounds(layout.tab);
+
+    this.surfaceRegistry.get("overlay-host")?.setBounds(layout.overlayHost);
+  }
+
+  _assertReady() {
+    if (this.lifecycleState !== "ready") {
+      throw new AppError({
+        code: ErrorCodes.SURFACE_INVALID,
+        message:
+          `PresentationManager is not ready. ` +
+          `Current state: ${this.lifecycleState}.`,
+      });
+    }
   }
 }
 

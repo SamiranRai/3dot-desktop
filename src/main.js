@@ -1,12 +1,35 @@
 const { app } = require("electron");
-
 const Application = require("./main/application/Application");
-const application = new Application();
 
-// Execute the createWindow function when the app is ready
-app.whenReady().then(() => {
-  application.start();
-}).catch((error) => {
-  console.error("Failed to start the application:", error);
-  app.quit();
+let application = null;
+
+async function createApplication() {
+  application = new Application();
+  await application.start();
+}
+
+app
+  .whenReady()
+  .then(createApplication)
+  .catch((error) => {
+    console.error("APPLICATION: fatal startup error", error);
+    app.quit();
+  });
+
+app.on("activate", async () => {
+  if (!application || application.lifecycleState === "destroyed") {
+    try {
+      await createApplication();
+    } catch (error) {
+      console.error("APPLICATION: failed to recreate window", error);
+    }
+  }
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  application?.shutdown();
 });

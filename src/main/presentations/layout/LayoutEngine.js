@@ -1,19 +1,12 @@
 class LayoutEngine {
-  constructor() {
-    this.width = 0;
-    this.height = 0;
-  }
-
-  setWindowSize(width, height) {
-    this.width = width;
-    this.height = height;
-  }
-
-  calculate(layoutDefinition) {
-    return layoutDefinition.calculate({
-      width: this.width,
-      height: this.height,
-    });
+  calculate(definition, width, height) {
+    if (!definition || typeof definition.calculate !== "function") {
+      throw new TypeError("LayoutEngine requires a layout definition.");
+    }
+    if (!Number.isFinite(width) || !Number.isFinite(height)) {
+      throw new TypeError("LayoutEngine requires finite width and height.");
+    }
+    return definition.calculate({ width, height });
   }
 }
 

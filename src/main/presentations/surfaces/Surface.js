@@ -3,18 +3,11 @@ const ErrorCodes = require("../../errors/ErrorCodes");
 
 class Surface {
   constructor({ id, renderer }) {
-    if (!id) {
-      throw new AppError({
-        code: ErrorCodes.SURFACE_MISSING_ID,
-        message: "Surface must have an id",
-      });
+    if (typeof id !== "string" || !id.trim()) {
+      throw new AppError({ code: ErrorCodes.SURFACE_INVALID, message: "Surface requires a non-empty id." });
     }
-
-    if (!renderer) {
-      throw new AppError({
-        code: ErrorCodes.SURFACE_MISSING_RENDERER,
-        message: "Surface must have a renderer",
-      });
+    if (!renderer || typeof renderer !== "object") {
+      throw new AppError({ code: ErrorCodes.SURFACE_INVALID, message: `Surface "${id}" requires a renderer.` });
     }
 
     this.id = id;
@@ -22,30 +15,23 @@ class Surface {
   }
 
   mount() {
-    // If the renderer has a mount method, call it.
-    if (typeof this.renderer.mount === "function") {
-      this.renderer.mount();
-    }
-  }
-
-  setBounds(bounds) {
-    // If the renderer has a setBounds method, call it.
-    if (typeof this.renderer.setBounds !== "function") {
-      throw new AppError({
-        code: ErrorCodes.SURFACE_DETACHMENT_FAILED,
-        message: `Renderer for surface "${this.id}" does not support setBounds`,
-      });
-    }
-    
-    this.renderer.setBounds(bounds);
+    return this.renderer.mount?.();
   }
 
   getView() {
-    return typeof this.renderer.getView === "function"
-      ? this.renderer.getView()
-      : null;
+    return this.renderer.getView?.() || null;
   }
-  
+
+  setBounds(bounds) {
+    if (typeof this.renderer.setBounds !== "function") {
+      throw new AppError({
+        code: ErrorCodes.SURFACE_INVALID,
+        message: `Surface "${this.id}" does not support setBounds().`,
+      });
+    }
+    this.renderer.setBounds(bounds);
+  }
+
   show() {
     this.renderer.show?.();
   }
@@ -57,11 +43,11 @@ class Surface {
   destroy() {
     try {
       this.renderer.destroy?.();
-    } catch (error) {
+    } catch (cause) {
       throw new AppError({
         code: ErrorCodes.SURFACE_DESTROY_FAILED,
-        message: `Failed to destroy surface "${this.id}"`,
-        cause: error,
+        message: `Failed to destroy surface "${this.id}".`,
+        cause,
       });
     }
   }

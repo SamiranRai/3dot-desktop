@@ -1,341 +1,228 @@
-const crypto = require("crypto");
-
+const EventEmitter = require("events");
 const Tab = require("./Tab");
 const AppError = require("../../../../errors/AppError");
 const ErrorCodes = require("../../../../errors/ErrorCodes");
 
-// Constants
-const NEW_TAB_URL = "http://localhost:5173/start"; // TODO: make configurable
-const TAB_EVENTS = Object.freeze({
-  STATE_CHANGED: "tab-state-changed",
-  CREATED: "tab-created",
-  CLOSED: "tab-closed",
-  ACTIVATED: "tab-activated",
-});
+const DEFAULT_NEW_TAB_URL = "http://localhost:5173/start";
 
-class TabManager {
-  constructor({ window, surfaceManager, eventBus, logger = console }) {
-    this._validateConstructorParams({
-      window,
-      surfaceManager,
-      eventBus,
-    });
+class TabManager extends EventEmitter {
+  constructor({ surfaceManager, logger = console, newTabURL = DEFAULT_NEW_TAB_URL } = {}) {
+    super();
 
-    // TabManager Objects Internal State
-    this.window = window;
+    if (!surfaceManager) throw new TypeError("TabManager requires a surfaceManager.");
+    if (typeof newTabURL !== "string" || !newTabURL.trim()) {
+      throw new TypeError("TabManager requires a non-empty newTabURL.");
+    }
+
     this.surfaceManager = surfaceManager;
-    this.eventBus = eventBus;
     this.logger = logger;
-
-    // tabs<MAP<TabId, Tab>>
+    this.newTabURL = newTabURL;
     this.tabs = new Map();
-    
+    this.order = [];
     this.activeTabId = null;
     this.lifecycleState = "created";
-    this._unsubscribeEventBus = null;
 
-    this._handleEventBusEvent = this._handleEventBusEvent.bind(this);
+    this.handleStateChanged = ({ tabId, tab }) => {
+      this.emit("tab-state-changed", { tabId, tab });
+    };
+
+    this.handleLoadError = ({ tabId, error }) => {
+      this.emit("tab-load-error", { tabId, error });
+    };
   }
 
-  // ---------- Lifecycle ----------
-
   initialize() {
+    if (this.lifecycleState === "ready") return;
     if (this.lifecycleState !== "created") {
       throw new AppError({
         code: ErrorCodes.BROWSER_NOT_READY,
-        message: `Cannot initialize TabManager from state: ${this.lifecycleState}`,
+        message: `Cannot initialize TabManager from state "${this.lifecycleState}".`,
       });
     }
 
+    this.lifecycleState = "ready";
+  }
+
+  async createTab(url) {
+    this._assertReady();
+
+    const tab = new Tab({ logger: this.logger });
+
+    this.tabs.set(tab.id, tab);
+    this.order.push(tab.id);
+    this._bindTab(tab);
+
     try {
-      this._unsubscribeEventBus = this.eventBus.subscribe(
-        this._handleEventBusEvent,
-      );
-      this.lifecycleState = "ready";
-      this._log("ready");
+      this.surfaceManager.attach(tab.id, tab.view.getView(), "tab");
+      tab.deactivate();
+      await tab.initialize(url === undefined ? this.newTabURL : url);
     } catch (error) {
-      this.lifecycleState = "error";
-      throw new AppError({
-        code: ErrorCodes.BROWSER_INITIALIZATION_FAILED,
-        message: "Failed to initialize TabManager.",
-        cause: error,
-      });
+      this._removeTabRecord(tab.id);
+      this._unbindTab(tab);
+      try {
+        this.surfaceManager.detach(tab.id);
+      } catch (detachError) {
+        this.logger.error?.("TAB MANAGER: failed to detach failed tab", detachError);
+      }
+      tab.destroy();
+      throw error;
     }
+
+    this._activateInternal(tab.id);
+    this.emit("tab-created", { tabId: tab.id, tab });
+    return tab;
+  }
+
+  async closeTab(tabId) {
+    this._assertReady();
+    const tab = this._requireTab(tabId);
+    const wasActive = tab.id === this.activeTabId;
+
+    if (this.tabs.size === 1) {
+      const replacement = await this.createTab();
+      if (wasActive) this._activateInternal(replacement.id);
+    }
+
+    if (wasActive && this.tabs.has(tabId)) {
+      const replacementId = this._findReplacementId(tabId);
+      if (replacementId) this._activateInternal(replacementId);
+    }
+
+    this._unbindTab(tab);
+    this._removeTabRecord(tab.id);
+
+    try {
+      this.surfaceManager.detach(tab.id);
+    } finally {
+      tab.destroy();
+    }
+
+    this.emit("tab-closed", {
+      tabId,
+      activeTabId: this.activeTabId,
+    });
+
+    return true;
+  }
+
+  activateTab(tabId) {
+    this._assertReady();
+    const tab = this._requireTab(tabId);
+    this._activateInternal(tab.id);
+    return tab;
+  }
+
+  getTabById(tabId) {
+    this._assertReady();
+    return this.tabs.get(tabId) || null;
+  }
+
+  getActiveTab() {
+    this._assertReady();
+    return this.activeTabId ? this.tabs.get(this.activeTabId) || null : null;
+  }
+
+  getAllTabs() {
+    this._assertReady();
+    return this.order.map((id) => this.tabs.get(id)).filter(Boolean);
   }
 
   destroy() {
     if (this.lifecycleState === "destroyed") return;
     this.lifecycleState = "destroyed";
 
-    try {
-      this._unsubscribeEventBus?.();
-    } catch (error) {
-      this._logError("Failed to unsubscribe from EventBus", error);
-    }
-    this._unsubscribeEventBus = null;
-
-    const tabs = [...this.tabs.values()];
-    this.tabs.clear();
-    this.activeTabId = null;
-
-    for (const tab of tabs) {
+    for (const tab of this.tabs.values()) {
       try {
+        this._unbindTab(tab);
+        this.surfaceManager.detach(tab.id);
         tab.destroy();
       } catch (error) {
-        this._logError("Failed to destroy Tab during shutdown", error);
+        this.logger.error?.(`TAB MANAGER: failed to destroy tab "${tab.id}"`, error);
       }
     }
 
-    this.window = null;
-    this.surfaceManager = null;
-    this.eventBus = null;
-
-    this._log("destroyed");
+    this.tabs.clear();
+    this.order = [];
+    this.activeTabId = null;
+    this.removeAllListeners();
   }
 
-  // Best-effort: state has already changed, a delivery failure must not roll it back.
-  publishEvent(type, payload = null, tabId = null) {
-    if (!this.eventBus) return false;
+  setActiveTabBounds(bounds) {
+    this._assertReady();
+    const activeTab = this.getActiveTab();
+    if (!activeTab) return false;
+    activeTab.setBounds(bounds);
+    return true;
+  }
 
-    try {
-      this.eventBus.publish({ type, tabId, payload });
-      return true;
-    } catch (error) {
-      this._logError(`Failed to publish "${type}" event`, error);
+  _bindTab(tab) {
+    tab.on(Tab.EVENTS.STATE_CHANGED, this.handleStateChanged);
+    tab.on(Tab.EVENTS.LOAD_ERROR, this.handleLoadError);
+  }
+
+  _unbindTab(tab) {
+    tab.removeListener(Tab.EVENTS.STATE_CHANGED, this.handleStateChanged);
+    tab.removeListener(Tab.EVENTS.LOAD_ERROR, this.handleLoadError);
+  }
+
+  _activateInternal(tabId) {
+    const nextTab = this.tabs.get(tabId);
+    if (!nextTab) return false;
+
+    if (this.activeTabId === tabId) {
+      nextTab.activate();
       return false;
     }
-  }
 
-  // ---------- Commands ----------
-
-  async createTab(url = NEW_TAB_URL) {
-    this._assertReady();
-
-    const tabId = crypto.randomUUID();
-    const tab = new Tab({
-      id: tabId,
-      window: this.window,
-      surfaceManager: this.surfaceManager,
-      eventBus: this.eventBus,
-    });
-
-    let registered = false;
-
-    try {
-      tab.attachToWindow();
-      this.tabs.set(tabId, tab);
-      registered = true;
-
-      this.publishEvent(TAB_EVENTS.CREATED, { state: tab.getState() }, tabId);
-      this.activateTab(tabId);
-    } catch (error) {
-      this._rollbackTabCreation(tabId, tab, registered);
-      throw error;
+    if (this.activeTabId) {
+      this.tabs.get(this.activeTabId)?.deactivate();
     }
 
-    // Past this point the tab is real: a load failure keeps it alive in an error state.
-    await tab.initialize(url);
+    this.activeTabId = tabId;
+    nextTab.activate();
+    this.emit("tab-activated", { tabId, tab: nextTab });
+    return true;
+  }
 
-    // Tab may have been closed while loading.
-    if (this.lifecycleState !== "ready" || this.tabs.get(tabId) !== tab) {
+  _findReplacementId(closingTabId) {
+    const index = this.order.indexOf(closingTabId);
+    if (index === -1) return null;
+    return this.order[index + 1] || this.order[index - 1] || null;
+  }
+
+  _removeTabRecord(tabId) {
+    this.tabs.delete(tabId);
+    const index = this.order.indexOf(tabId);
+    if (index !== -1) this.order.splice(index, 1);
+    if (this.activeTabId === tabId) this.activeTabId = null;
+  }
+
+  _requireTab(tabId) {
+    if (typeof tabId !== "string" || !tabId.trim()) {
       throw new AppError({
-        code: ErrorCodes.BROWSER_TAB_NOT_FOUND,
-        message: `Tab ${tabId} is no longer managed by TabManager.`,
+        code: ErrorCodes.INVALID_ARGUMENT,
+        message: "tabId must be a non-empty string.",
       });
     }
 
-    this._log(`created tab ${tabId}`);
-    return tab.getState();
-  }
-
-  closeTab(tabId) {
-    this._assertReady();
-
-    const tab = this.getTabById(tabId);
-    const wasActive = this.activeTabId === tabId;
-
-    // Remove ownership first so the destroyed-state event is ignored as already handled.
-    this.tabs.delete(tabId);
-
-    try {
-      tab.destroy();
-    } catch (error) {
-      this._logError(`Failed to destroy tab ${tabId}`, error);
+    const tab = this.tabs.get(tabId);
+    if (!tab) {
+      throw new AppError({
+        code: ErrorCodes.BROWSER_TAB_NOT_FOUND,
+        message: `Tab "${tabId}" was not found.`,
+      });
     }
 
-    this.publishEvent(TAB_EVENTS.CLOSED, { reason: "user" }, tabId);
-
-    if (wasActive) {
-      this.activeTabId = null;
-      this._activateReplacementTab();
-    }
-
-    this._log(`closed tab ${tabId}`);
-  }
-
-  activateTab(tabId) {
-    this._assertReady();
-
-    const target = this.getTabById(tabId);
-    if (this.activeTabId === tabId) return target.getState();
-
-    const previous = this.tabs.get(this.activeTabId) ?? null;
-
-    try {
-      previous?.hide();
-      target.show();
-      this.activeTabId = tabId;
-    } catch (error) {
-      try {
-        previous?.show();
-      } catch (restoreError) {
-        this.activeTabId = null;
-        this._logError("Failed to restore previous active Tab", restoreError);
-      }
-      throw error;
-    }
-
-    this.publishEvent(
-      TAB_EVENTS.ACTIVATED,
-      { state: target.getState() },
-      tabId,
-    );
-    this._log(`activated tab ${tabId}`);
-
-    return target.getState();
-  }
-
-  // ---------- Internal ----------
-
-  _handleEventBusEvent(event) {
-    if (this.lifecycleState === "destroyed" || !event?.tabId) return;
-    if (event.type !== TAB_EVENTS.STATE_CHANGED) return;
-    if (event.payload?.state?.lifecycleState !== "destroyed") return;
-
-    const { tabId } = event;
-
-    // Not in the map means closeTab()/rollback already handled it.
-    if (!this.tabs.has(tabId)) return;
-
-    const wasActive = this.activeTabId === tabId;
-    this.tabs.delete(tabId);
-    this.publishEvent(
-      TAB_EVENTS.CLOSED,
-      { reason: "unexpected-destruction" },
-      tabId,
-    );
-
-    if (wasActive) {
-      this.activeTabId = null;
-      this._activateReplacementTab();
-    }
-
-    this._log(`reconciled unexpectedly destroyed tab ${tabId}`);
-  }
-
-  // Most recently created remaining tab wins.
-  _activateReplacementTab() {
-    for (const tabId of [...this.tabs.keys()].reverse()) {
-      try {
-        this.activateTab(tabId);
-        return;
-      } catch (error) {
-        this._logError(`Failed to activate replacement tab ${tabId}`, error);
-      }
-    }
-    this.activeTabId = null;
-  }
-
-  _rollbackTabCreation(tabId, tab, registered) {
-    if (registered) {
-      this.tabs.delete(tabId);
-      if (this.activeTabId === tabId) this.activeTabId = null;
-    }
-
-    try {
-      tab.destroy();
-    } catch (error) {
-      this._logError(
-        `Failed to clean up partially created tab ${tabId}`,
-        error,
-      );
-    }
-
-    if (registered) {
-      this.publishEvent(
-        TAB_EVENTS.CLOSED,
-        { reason: "creation-failed" },
-        tabId,
-      );
-    }
+    return tab;
   }
 
   _assertReady() {
     if (this.lifecycleState !== "ready") {
       throw new AppError({
         code: ErrorCodes.BROWSER_NOT_READY,
-        message: `TabManager is not ready. Current state: ${this.lifecycleState}`,
+        message: `TabManager is not ready. Current state: "${this.lifecycleState}".`,
       });
     }
-  }
-
-  _validateConstructorParams({ window, surfaceManager, eventBus }) {
-    if (!window) {
-      throw new TypeError("TabManager: window is required.");
-    }
-    if (
-      typeof surfaceManager?.attach !== "function" ||
-      typeof surfaceManager?.detach !== "function"
-    ) {
-      throw new TypeError(
-        "TabManager: surfaceManager must provide attach() and detach().",
-      );
-    }
-    if (
-      typeof eventBus?.publish !== "function" ||
-      typeof eventBus?.subscribe !== "function"
-    ) {
-      throw new TypeError(
-        "TabManager: eventBus must provide publish() and subscribe().",
-      );
-    }
-  }
-
-  // ---------- Queries ----------
-
-  getTabById(tabId) {
-    const tab = this.tabs.get(tabId);
-    if (!tab) {
-      throw new AppError({
-        code: ErrorCodes.BROWSER_TAB_NOT_FOUND,
-        message: `Tab with ID ${tabId} not found.`,
-      });
-    }
-    return tab;
-  }
-
-  getActiveTab() {
-    return this.activeTabId === null ? null : this.getTabById(this.activeTabId);
-  }
-
-  getActiveTabState() {
-    return this.getActiveTab()?.getState() ?? null;
-  }
-
-  getAllTabs() {
-    return [...this.tabs.values()].map((tab) => tab.getState());
-  }
-
-  hasTab(tabId) {
-    return this.tabs.has(tabId);
-  }
-
-  _log(message) {
-    this.logger.log?.(`TAB MANAGER: ${message}`);
-  }
-
-  _logError(message, error) {
-    this.logger.error?.(`TAB MANAGER: ${message}`, error);
   }
 }
 

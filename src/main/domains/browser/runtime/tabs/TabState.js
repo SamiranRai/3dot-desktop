@@ -7,7 +7,6 @@ class TabState {
     this.canGoForward = false;
   }
 
-  // Return an immutable snapshot of the current tab state.
   getSnapshot() {
     return Object.freeze({
       url: this.url,

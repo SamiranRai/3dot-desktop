@@ -1,29 +1,28 @@
-const AppError = require("./../errors/AppError");
-const ErrorCodes = require("./../errors/ErrorCodes");
+const AppError = require("./AppError");
+const ErrorCodes = require("./ErrorCodes");
 
 class ErrorHandler {
-  // Error Normalization
-  static normalizeError(error) {
-    // Check if the error is already an instance of AppError
-    if (error instanceof AppError) {
-      return error;
-    }
+  static normalizeError(error, fallback = {}) {
+    if (error instanceof AppError) return error;
 
-    // If it's a standard Error, wrap it in an AppError
     return new AppError({
-      code: ErrorCodes.INTERNAL_ERROR,
-      message: "An unexpected error occurred.",
+      code: fallback.code || ErrorCodes.BROWSER_OPERATION_FAILED,
+      message: fallback.message || error?.message || "An unexpected error occurred.",
       cause: error,
+      details: fallback.details,
     });
   }
 
-  // Error Response Formatting
   static toResponse(error) {
-    const normalizedError = this.normalizeError(error);
+    const normalized = this.normalizeError(error);
+
     return {
-      code: normalizedError.code,
-      message: normalizedError.message,
-      details: normalizedError.details,
+      ok: false,
+      error: {
+        code: normalized.code,
+        message: normalized.message,
+        details: normalized.details,
+      },
     };
   }
 }

@@ -1,222 +1,261 @@
-const { BrowserWindow, BaseWindow } = require("electron");
+// src/main/application/Application.js
+
+const { BaseWindow } = require("electron");
 const path = require("path");
 
 const AppError = require("../errors/AppError");
 const ErrorCodes = require("../errors/ErrorCodes");
 const ErrorHandler = require("../errors/ErrorHandler");
+const EventBus = require("../infrastructure/events/EventBus");
+
 const BrowserManager = require("../domains/browser/runtime/BrowserManager");
 const BrowserCapabilities = require("../domains/browser/capabilities/BrowserCapabilities");
-const PresentationManager = require("../presentations/PresentationManager");
 const BrowserIPCAdapter = require("../adapters/ipc/BrowserIPCAdapter");
+
+const PresentationManager = require("../presentations/PresentationManager");
 const SurfaceManager = require("../presentations/surfaces/SurfaceManager");
-const DEFAULT_WINDOW_OPTIONS = { width: 800, height: 600 };
-const BASE_URL = "http://localhost:5173";
 
-const Z_ORDER = ["react-shell", "tab", "overlay-host"];
+const DEFAULT_WINDOW_OPTIONS = Object.freeze({
+  width: 1200,
+  height: 800,
+  minWidth: 900,
+  minHeight: 600,
+  show: false,
+});
 
-/**
- * Top-level application composition root. Owns the native window and the
- * lifecycle of the browser subsystem (runtime, presentation, IPC), and is
- * the single place that knows the correct create/teardown order for both.
- *
- * Lifecycle states: created -> starting -> ready -> shutting-down -> destroyed
- *                                       \-> error
- */
+const BASE_URL = process.env.RENDERER_URL || "http://localhost:5173";
+const PRELOAD_PATH = path.join(__dirname, "../../preload/index.js");
+const Z_ORDER = Object.freeze(["react-shell", "tab", "overlay-host"]);
+
 class Application {
-  /**
-   * @param {{ logger?: { log?: Function, error?: Function } }} [deps]
-   */
-  constructor({ logger } = {}) {
-    this.logger = logger || console;
+  constructor({ logger = console } = {}) {
+    this.logger = logger;
+
+    this.eventBus = new EventBus({ logger });
 
     this.window = null;
+    this.surfaceManager = null;
     this.browserManager = null;
     this.presentationManager = null;
-    this.surfaceManager = null;
     this.browserIPCAdapter = null;
 
     this.lifecycleState = "created";
+
+    this.handleWindowClosed = this.handleWindowClosed.bind(this);
   }
 
-  /**
-   * Boots the application: window -> browser runtime -> presentation -> IPC.
-   * If any step fails, everything created so far is torn down (reverse
-   * order) before the error is re-thrown, so a failed start() never
-   * leaves the instance half-initialized.
-   *
-   * @throws {AppError} APPLICATION_NOT_READY if not in the "created" state;
-   *   otherwise the normalized error from whichever step failed.
-   **/
+  // ======================LIFECYCLE======================
 
-  start() {
-    this.assertLifecycleState("created", ErrorCodes.APPLICATION_NOT_READY);
+  async start() {
+    this._assertState("created", ErrorCodes.APPLICATION_NOT_READY);
 
     this.lifecycleState = "starting";
 
     try {
-      this.createWindow();
-      this.createSurfaceManager();
-      this.createBrowserRuntime();
-      this.createBrowserPresentation();
-      this.createIPCAdapter();
+      // 1. Native window.
+      this._createWindow();
+
+      // 2. Native surface management.
+      this._createSurfaceManager();
+
+      // 3. Browser domain/runtime.
+      this._createBrowserRuntime();
+
+      // 4. Create native renderer surfaces.
+      //
+      // IMPORTANT:
+      // This does NOT load React yet.
+      this._createPresentation();
+
+      // 5. Register IPC before renderer JavaScript executes.
+      this._createIPCAdapter();
+
+      // 6. Now it is safe to load React/overlay renderers.
+      await this.presentationManager.loadSurfaces();
+
+      // 7. Create initial browser tab after IPC and renderer exist.
+      await this.browserManager.createInitialTab();
+
+      // 8. Everything is ready.
+      this.window.show();
 
       this.lifecycleState = "ready";
+
       this.logger.log?.("APPLICATION: ready");
     } catch (error) {
-      const appError = ErrorHandler.normalizeError(error);
-      this.logger.error?.(
-        "APPLICATION: failed to start",
-        ErrorHandler.toResponse(appError),
-      );
+      const normalized = ErrorHandler.normalizeError(error, {
+        code: ErrorCodes.APPLICATION_START_FAILED,
+        message: "Application failed to start.",
+      });
 
-      this.teardown();
+      this.logger.error?.("APPLICATION: failed to start", normalized);
+
+      this._teardown(true);
+
       this.lifecycleState = "error";
-      throw appError;
+
+      throw normalized;
     }
   }
 
-  /**
-   * Tears down a running (or partially-started) application: unregisters
-   * IPC, destroys the presentation layer, destroys the browser runtime,
-   * then destroys the native window. Idempotent — safe to call from any
-   * state, including after a failed start() or a repeat call.
-   */
-
   shutdown() {
     if (this.lifecycleState === "destroyed") {
-      this.logger.log?.("APPLICATION: already destroyed, skipping shutdown");
       return;
     }
 
     this.logger.log?.("APPLICATION: shutting down");
-    this.teardown();
 
+    this._teardown(true);
     this.lifecycleState = "destroyed";
+
     this.logger.log?.("APPLICATION: destroyed");
   }
 
-  // Construction steps (each independently guarded by start()'s try/catch)
-  /** @private */
-  createWindow() {
-    this.window = new BrowserWindow({
-      ...DEFAULT_WINDOW_OPTIONS,
-      webPreferences: {
-        preload: path.join(__dirname, "../../preload/index.js"),
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
+  // ======================CREATION======================
+
+  _createWindow() {
+    this.window = new BaseWindow(DEFAULT_WINDOW_OPTIONS);
+    this.window.on("closed", this.handleWindowClosed);
   }
 
-  /** @private */
-  createSurfaceManager() {
+  _createSurfaceManager() {
     this.surfaceManager = new SurfaceManager(this.window.contentView, Z_ORDER);
   }
 
-  /** @private */
-  createBrowserRuntime() {
+  _createBrowserRuntime() {
     this.browserManager = new BrowserManager({
-      window: this.window,
       surfaceManager: this.surfaceManager,
+      eventBus: this.eventBus,
+      logger: this.logger,
+      newTabURL: `${BASE_URL}/start`,
     });
+
     this.browserManager.initialize();
   }
 
-  /**
-   * Creates and shows the visual composition of the browser screen:
-   * PresentationManager -> BrowserTopBar + BrowserContent -> active tab view.
-   * @private
-   */
-  createBrowserPresentation() {
+  _createPresentation() {
     this.presentationManager = new PresentationManager({
       window: this.window,
       baseURL: BASE_URL,
-      preload: path.join(__dirname, "../../preload/index.js"),
+      preload: PRELOAD_PATH,
       browserManager: this.browserManager,
       surfaceManager: this.surfaceManager,
+      eventBus: this.eventBus,
+      logger: this.logger,
     });
 
+    /*
+     * initialize() creates native WebContentsViews
+     * and attaches them to the window.
+     *
+     * It deliberately does NOT load React yet.
+     */
     this.presentationManager.initialize();
   }
 
-  /** @private */
-  createIPCAdapter() {
-    const browserCapabilities = new BrowserCapabilities(this.browserManager);
+  _createIPCAdapter() {
+    const capabilities = new BrowserCapabilities(this.browserManager);
 
-    this.browserIPCAdapter = new BrowserIPCAdapter(
-      browserCapabilities,
-      this.browserManager,
-      this.window,
-      this.logger,
-    );
+    this.browserIPCAdapter = new BrowserIPCAdapter({
+      capabilities,
+      window: this.window,
+      surfaceManager: this.surfaceManager,
+      eventBus: this.eventBus,
+      logger: this.logger,
+    });
 
     this.browserIPCAdapter.register();
   }
 
-  // Teardown (shared by start()'s failure path and shutdown())
-  /**
-   * Best-effort teardown of whatever currently exists, in reverse
-   * creation order. Each step is independently guarded so one failure
-   * doesn't block the rest, and every step is safe to call even if the
-   * corresponding resource was never created (still null).
-   * @private
-   */
-  teardown() {
-    this.safeStep("unregister IPC adapter", () => {
-      this.browserIPCAdapter?.unregister?.();
-    });
+  // ======================WINDOW-EVENTS======================
+
+  handleWindowClosed() {
+    if (this.lifecycleState === "destroyed") {
+      return;
+    }
+
+    this._teardown(false);
+    this.lifecycleState = "destroyed";
+
+    this.logger.log?.("APPLICATION: window closed");
+  }
+
+  // ======================TEARDOWN======================
+
+  _teardown(destroyWindow) {
+    try {
+      this.browserIPCAdapter?.unregister();
+    } catch (error) {
+      this.logger.error?.("APPLICATION: failed to unregister IPC", error);
+    }
+
     this.browserIPCAdapter = null;
 
-    this.safeStep("destroy browser presentation", () => {
-      this.presentationManager?.destroy?.();
-    });
+    try {
+      this.presentationManager?.destroy();
+    } catch (error) {
+      this.logger.error?.("APPLICATION: failed to destroy presentation", error);
+    }
+
     this.presentationManager = null;
 
-    this.safeStep("destroy browser runtime", () => {
-      this.browserManager?.destroy?.();
-    });
+    try {
+      this.browserManager?.destroy();
+    } catch (error) {
+      this.logger.error?.(
+        "APPLICATION: failed to destroy browser runtime",
+        error,
+      );
+    }
+
     this.browserManager = null;
 
-    this.safeStep("destroy window", () => {
-      if (this.window && !this.window.isDestroyed()) {
-        this.window.destroy();
-      }
-    });
-    this.window = null;
-    this.surfaceManager = null;
-  }
-
-  /**
-   * Runs a teardown step, catching and logging any failure instead of
-   * letting it abort the rest of teardown.
-   * @private
-   * @param {string} label - Human-readable step name for logging.
-   * @param {Function} fn
-   */
-  safeStep(label, fn) {
     try {
-      fn();
-    } catch (cause) {
-      const appError = new AppError({
-        code: ErrorCodes.SURFACE_TEARDOWN_FAILED,
-        message: `APPLICATION: failed to ${label}`,
-        cause,
-      });
-      this.logger.error?.(ErrorHandler.toResponse(appError));
+      this.surfaceManager?.detachAll();
+    } catch (error) {
+      this.logger.error?.("APPLICATION: failed to detach surfaces", error);
     }
+
+    this.surfaceManager = null;
+
+    if (this.window) {
+      this.window.removeListener("closed", this.handleWindowClosed);
+
+      if (destroyWindow && !this.window.isDestroyed()) {
+        try {
+          this.window.destroy();
+        } catch (error) {
+          this.logger.error?.("APPLICATION: failed to destroy window", error);
+        }
+      }
+    }
+
+    this.window = null;
+
+    this.eventBus.destroy();
   }
 
-  // Guards
-  /** @private */
-  assertLifecycleState(expected, code) {
+  // ======================GUARDS======================
+
+  _assertState(expected, code) {
     if (this.lifecycleState !== expected) {
       throw new AppError({
         code,
-        message: `Application is not in the required "${expected}" state (current: ${this.lifecycleState})`,
-        details: { expected, actual: this.lifecycleState },
+
+        message:
+          `Application must be in "${expected}" ` +
+          `state; current state is ` +
+          `"${this.lifecycleState}".`,
+
+        details: {
+          expected,
+          actual: this.lifecycleState,
+        },
       });
     }
   }
 }
+
+Application.BASE_URL = BASE_URL;
 
 module.exports = Application;

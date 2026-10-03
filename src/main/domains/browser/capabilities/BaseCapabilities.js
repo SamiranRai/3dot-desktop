@@ -2,27 +2,23 @@ const AppError = require("../../../errors/AppError");
 const ErrorCodes = require("../../../errors/ErrorCodes");
 const ErrorHandler = require("../../../errors/ErrorHandler");
 
-/**
- * Shared scaffolding for capability classes wrapping a browserManager.
- * Validates required methods exist, and normalizes any thrown error
- * into an AppError so every capability produces a consistent shape.
- *
- * Does NOT and should never handle authorization/sender validation —
- * that's the IPC adapter's job at the trust boundary. This class only
- * validates that a call is well-formed on its own terms, since
- * Capabilities is a standalone domain API that other callers (tests,
- * shortcuts, a future second adapter) could use directly.
- */
 class BaseCapabilities {
   constructor(browserManager, requiredMethods, label) {
-    const missing = requiredMethods.filter(
-      (method) => typeof browserManager?.[method] !== "function",
-    );
-
-    if (missing.length > 0) {
+    if (!browserManager) {
       throw new AppError({
         code: ErrorCodes.INVALID_ARGUMENT,
-        message: `${label} requires a browserManager exposing: ${missing.join(", ")}`,
+        message: `${label} requires a browserManager.`,
+      });
+    }
+
+    const missing = requiredMethods.filter(
+      (method) => typeof browserManager[method] !== "function",
+    );
+
+    if (missing.length) {
+      throw new AppError({
+        code: ErrorCodes.INVALID_ARGUMENT,
+        message: `${label} requires: ${missing.join(", ")}.`,
         details: { missing },
       });
     }
@@ -30,40 +26,33 @@ class BaseCapabilities {
     this.browserManager = browserManager;
   }
 
-  /** @protected */
-  runOperation(
-    operationName,
-    fn,
-    failureCode = ErrorCodes.BROWSER_OPERATION_FAILED,
-  ) {
+  async runOperation(operationName, operation, failureCode = ErrorCodes.BROWSER_OPERATION_FAILED) {
     try {
-      return fn();
-    } catch (cause) {
-      if (cause instanceof AppError) throw cause;
-      throw new AppError({
+      return await operation();
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+
+      throw ErrorHandler.normalizeError(error, {
         code: failureCode,
         message: `Operation "${operationName}" failed.`,
-        cause: ErrorHandler.normalizeError(cause).cause || cause,
       });
     }
   }
 
-  /** @protected */
-  assertNonEmptyString(value, argName, operationName) {
-    if (typeof value !== "string" || value.trim().length === 0) {
+  assertNonEmptyString(value, name, operation) {
+    if (typeof value !== "string" || !value.trim()) {
       throw new AppError({
         code: ErrorCodes.INVALID_ARGUMENT,
-        message: `${operationName}() requires a non-empty ${argName} string.`,
+        message: `${operation}() requires a non-empty ${name} string.`,
       });
     }
   }
 
-  /** @protected */
-  assertOptionalString(value, argName, operationName) {
+  assertOptionalString(value, name, operation) {
     if (value !== undefined && typeof value !== "string") {
       throw new AppError({
         code: ErrorCodes.INVALID_ARGUMENT,
-        message: `${operationName}() ${argName} must be a string when provided.`,
+        message: `${operation}() ${name} must be a string when provided.`,
       });
     }
   }
