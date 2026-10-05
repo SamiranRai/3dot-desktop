@@ -1,8 +1,8 @@
 import { BrowserProvider } from '@/features/browser/state/BrowserProvider';
-import { BrowserActions } from '../browser-top-bar/actions';
-import { BrowserNavigationControls } from '../browser-top-bar/navigation-controls';
-import { SearchBar } from '../browser-top-bar/search-bar';
-import Tabs from './browser-tab/Tabs';
+import { BrowserActions } from './actions';
+import { BrowserNavigationControls } from './navigation-controls';
+import { SearchBar } from './search-bar';
+import { Tabs } from './browser-tab';
 
 import './BrowserTopBar.css';
 

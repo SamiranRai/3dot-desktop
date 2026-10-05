@@ -1,9 +1,10 @@
-// components/browser-tab/Tab.tsx
-import { useCallback, useState } from "react";
-import { useBrowser } from "@/features/browser/state/BrowserProvider";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
+
 import type { TabDTO } from "@/features/browser/api/browser.types";
+import { useBrowser } from "@/features/browser/state/BrowserProvider";
 import IconButton from "@/shared/components/IconButton";
-import { CloseIcon, ReloadIcon } from "@/shared/components/icons";
+import { CloseIcon } from "@/shared/components/icons";
+
 import "./Tab.css";
 
 interface TabProps {
@@ -17,36 +18,23 @@ const Tab = ({ tab, isActive }: TabProps) => {
 
   const title = tab.title || "New Tab";
 
-  const handleActivate = useCallback(() => {
-    activateTab(tab.id);
-  }, [activateTab, tab.id]);
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.target !== event.currentTarget) return;
 
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        handleActivate();
-      }
-    },
-    [handleActivate],
-  );
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      void activateTab(tab.id);
+    }
+  };
 
-  const handleClose = useCallback(
-    (event: React.MouseEvent) => {
-      event.stopPropagation();
-      if (isClosing) return;
-
-      setIsClosing(true);
-      closeTab(tab.id).finally(() => setIsClosing(false));
-    },
-    [closeTab, tab.id, isClosing],
-  );
-
-  const handleReload = useCallback((event: React.MouseEvent) => {
+  const handleClose = async (event: MouseEvent) => {
     event.stopPropagation();
-    // TODO: no per-tab reload IPC method exists yet — BrowserAPI.reload()
-    // only reloads the active tab. Wire this once that's added.
-  }, []);
+    if (isClosing) return;
+
+    setIsClosing(true);
+    await closeTab(tab.id);
+    setIsClosing(false);
+  };
 
   return (
     <div
@@ -54,7 +42,7 @@ const Tab = ({ tab, isActive }: TabProps) => {
       role="tab"
       aria-selected={isActive}
       tabIndex={0}
-      onClick={handleActivate}
+      onClick={() => void activateTab(tab.id)}
       onKeyDown={handleKeyDown}
     >
       <div className="browser-tab-info-container">
@@ -68,17 +56,6 @@ const Tab = ({ tab, isActive }: TabProps) => {
         </IconButton>
 
         <span className="browser-tab-title">{title}</span>
-      </div>
-
-      <div className="browser-tab-indicator-container">
-        <IconButton
-          ariaLabel={`Reload ${title}`}
-          className="browser-tab-button--reload"
-          onClick={handleReload}
-          disabled
-        >
-          <ReloadIcon size={17} />
-        </IconButton>
       </div>
     </div>
   );

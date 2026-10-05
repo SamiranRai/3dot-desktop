@@ -5,8 +5,13 @@ export interface BrowserContextValue {
   tabs: TabDTO[];
   activeTabId: string | null;
   activeTab: TabDTO | null;
-  activateTab: (tabId: string) => Promise<void>;
-  closeTab: (tabId: string) => Promise<void>;
+  createTab: () => Promise<boolean>;
+  activateTab: (tabId: string) => Promise<boolean>;
+  closeTab: (tabId: string) => Promise<boolean>;
+  navigate: (url: string) => Promise<boolean>;
+  goBack: () => Promise<boolean>;
+  goForward: () => Promise<boolean>;
+  reload: () => Promise<boolean>;
 }
 
 export interface BrowserProviderProps {
