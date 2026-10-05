@@ -28,6 +28,11 @@ export interface TabEvent {
   tab: TabDTO;
 }
 
+export interface TabsSnapshot {
+  tabs: TabDTO[];
+  activeTabId: string | null;
+}
+
 export interface BrowserAPI {
   // Renderer -> Electron (IPC Invokes)
   navigate: (url: string) => Promise<IPCResult<null>>;
@@ -38,7 +43,7 @@ export interface BrowserAPI {
   createTab: (url: string) => Promise<IPCResult<TabDTO>>;
   closeTab: (tabId: string) => Promise<IPCResult<null>>;
   activateTab: (tabId: string) => Promise<IPCResult<TabDTO>>;
-  getTabs: () => Promise<IPCResult<TabDTO[]>>;
+  getTabs: () => Promise<IPCResult<TabsSnapshot>>;
 
   // Electron -> Renderer (IPC Listeners)
   onTabCreated: (callback: (data: TabEvent) => void) => Unsubscribe;

@@ -1,54 +1,29 @@
-import type { IPCResult, TabDTO } from "./browser.types";
+import type { BrowserAPI, TabClosedEvent, TabEvent } from "./browser.types";
 
-// Thin wrapper around the window.browser API,
-// which is injected by the preload script.
-// This is a convenience layer to make it easier
-// to use the browser API in React components and other parts of the renderer process.
-
-function assertBridgeMethod(name: keyof Window["browser"]) {
-  if (typeof window.browser?.[name] !== "function") {
+function bridge(): BrowserAPI {
+  if (!window.browser) {
     throw new Error(
-      `window.browser.${name} is unavailable — preload bridge not initialized`,
+      "window.browser is unavailable — preload bridge not initialized",
     );
   }
+  return window.browser;
 }
 
-export async function goBack(): Promise<IPCResult<boolean>> {
-  assertBridgeMethod("goBack");
-  return window.browser.goBack();
-}
+// async: a missing bridge becomes a rejection, not a sync throw
+export const navigate = async (url: string) => bridge().navigate(url);
+export const goBack = async () => bridge().goBack();
+export const goForward = async () => bridge().goForward();
+export const reload = async () => bridge().reload();
+export const createTab = async (url: string) => bridge().createTab(url);
+export const closeTab = async (tabId: string) => bridge().closeTab(tabId);
+export const activateTab = async (tabId: string) => bridge().activateTab(tabId);
+export const getTabs = async () => bridge().getTabs();
 
-export async function goForward(): Promise<IPCResult<boolean>> {
-  assertBridgeMethod("goForward");
-  return window.browser.goForward();
-}
-
-export async function reload(): Promise<IPCResult<null>> {
-  assertBridgeMethod("reload");
-  return window.browser.reload();
-}
-
-export async function navigate(url: string): Promise<IPCResult<null>> {
-  assertBridgeMethod("navigate");
-  return window.browser.navigate(url);
-}
-
-export async function createTab(url?: string): Promise<IPCResult<TabDTO>> {
-  assertBridgeMethod("createTab");
-  return window.browser.createTab(url as string);
-}
-
-export async function closeTab(tabId: string): Promise<IPCResult<null>> {
-  assertBridgeMethod("closeTab");
-  return window.browser.closeTab(tabId);
-}
-
-export async function activateTab(tabId: string): Promise<IPCResult<TabDTO>> {
-  assertBridgeMethod("activateTab");
-  return window.browser.activateTab(tabId);
-}
-
-export async function getTabs(): Promise<IPCResult<TabDTO[]>> {
-  assertBridgeMethod("getTabs");
-  return window.browser.getTabs();
-}
+export const onTabCreated = (cb: (e: TabEvent) => void) =>
+  bridge().onTabCreated(cb);
+export const onTabClosed = (cb: (e: TabClosedEvent) => void) =>
+  bridge().onTabClosed(cb);
+export const onTabActivated = (cb: (e: TabEvent) => void) =>
+  bridge().onTabActivated(cb);
+export const onTabStateChanged = (cb: (e: TabEvent) => void) =>
+  bridge().onTabStateChanged(cb);
